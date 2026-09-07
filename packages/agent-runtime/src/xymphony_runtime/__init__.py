@@ -1,5 +1,6 @@
 """Xymphony agent runtime (session orchestration). Not LiveKit Agents."""
 
+from xymphony_runtime.bridge import RuntimeMediaBridge
 from xymphony_runtime.context import RuntimeContext
 from xymphony_runtime.errors import (
     InvalidRuntimeInputError,
@@ -28,6 +29,7 @@ __all__ = [
     "InvalidStateTransitionError",
     "LifecycleTransition",
     "MinimalTransportSession",
+    "RuntimeMediaBridge",
     "RuntimeContext",
     "RuntimeError",
     "RuntimeInput",
