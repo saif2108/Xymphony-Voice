@@ -6,9 +6,11 @@ from collections.abc import AsyncIterator, Callable, Iterable
 from typing import Any
 
 from xymphony_contracts.provider import CancellationToken, ProviderError, ProviderErrorCode
-from xymphony_contracts.tts import TTSRequest, TTSStreamChunk
+from xymphony_contracts.tts import TTSOutputAudioFrame, TTSRequest, TTSStreamChunk
 
 _ELEVENLABS_PROVIDER_KEY = "elevenlabs"
+_DEFAULT_OUTPUT_SAMPLE_RATE_HZ = 16_000
+_DEFAULT_OUTPUT_CHANNELS = 1
 
 
 StreamFactory = Callable[[str, TTSRequest], Iterable[bytes]]
@@ -27,10 +29,24 @@ class ElevenLabsTTSProvider:
         self._api_key = api_key
         self._default_voice_ref = default_voice_ref
         self._stream_factory = stream_factory or _default_stream_factory
+        self._chunk_audio: dict[str, bytes] = {}
 
     @property
     def provider_key(self) -> str:
         return _ELEVENLABS_PROVIDER_KEY
+
+    def resolve_output_audio(self, audio_ref: str) -> TTSOutputAudioFrame | None:
+        data = self._chunk_audio.get(audio_ref)
+        if data is None:
+            return None
+        bytes_per_sample = 2 * _DEFAULT_OUTPUT_CHANNELS
+        duration_ms = max(1, len(data) // bytes_per_sample * 1000 // _DEFAULT_OUTPUT_SAMPLE_RATE_HZ)
+        return TTSOutputAudioFrame(
+            data=data,
+            sample_rate_hz=_DEFAULT_OUTPUT_SAMPLE_RATE_HZ,
+            channels=_DEFAULT_OUTPUT_CHANNELS,
+            duration_ms=duration_ms,
+        )
 
     async def stream(
         self,
@@ -42,20 +58,27 @@ class ElevenLabsTTSProvider:
         try:
             audio_stream = self._stream_factory(self._api_key, request)
             last_index = -1
-            for index, _chunk_bytes in enumerate(audio_stream):
+            for index, chunk_bytes in enumerate(audio_stream):
                 if cancel.cancelled:
                     return
+                audio_ref = f"elevenlabs:{voice_ref}:{index}"
+                self._chunk_audio[audio_ref] = chunk_bytes
                 last_index = index
                 yield TTSStreamChunk(
-                    audio_ref=f"elevenlabs:{voice_ref}:{index}",
+                    audio_ref=audio_ref,
                     index=index,
                     is_final=False,
                 )
             if cancel.cancelled:
                 return
             final_index = max(last_index, 0)
+            final_ref = f"elevenlabs:{voice_ref}:{final_index}:final"
+            if final_ref not in self._chunk_audio and last_index >= 0:
+                final_bytes = self._chunk_audio.get(f"elevenlabs:{voice_ref}:{final_index}")
+                if final_bytes is not None:
+                    self._chunk_audio[final_ref] = final_bytes
             yield TTSStreamChunk(
-                audio_ref=f"elevenlabs:{voice_ref}:{final_index}:final",
+                audio_ref=final_ref,
                 index=final_index,
                 is_final=True,
             )
@@ -70,9 +93,11 @@ def _default_stream_factory(api_key: str, request: TTSRequest) -> Iterable[bytes
 
     voice_ref = request.voice_ref
     model_id = request.params.get("model_id")
+    output_format = request.params.get("output_format", "pcm_16000")
     kwargs: dict[str, Any] = {
         "voice_id": voice_ref,
         "text": request.text,
+        "output_format": output_format,
     }
     if isinstance(model_id, str) and model_id:
         kwargs["model_id"] = model_id

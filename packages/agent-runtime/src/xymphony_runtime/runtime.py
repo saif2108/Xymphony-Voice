@@ -271,7 +271,7 @@ class AgentRuntime:
         final_transcript = self._final_transcript_for_turn(turn.id)
         if final_transcript and final_transcript.strip():
             logger.info(
-                "speech_transcript_produced",
+                "transcript_finalized",
                 extra={
                     "session_id": str(self._context.session_id),
                     "turn_id": str(turn.id),
@@ -443,6 +443,14 @@ class AgentRuntime:
         )
         full_text_parts: list[str] = []
         finish_reason = "stop"
+        logger.info(
+            "llm_started",
+            extra={
+                "session_id": str(self._context.session_id),
+                "turn_id": str(turn.id),
+                "provider_key": self._llm_config.provider_key,
+            },
+        )
 
         try:
             async for chunk in self._llm_provider.stream(request, cancel=cancel):
@@ -493,6 +501,13 @@ class AgentRuntime:
                 finish_reason=finish_reason,
             )
         )
+        logger.info(
+            "llm_completed",
+            extra={
+                "session_id": str(self._context.session_id),
+                "turn_id": str(turn.id),
+            },
+        )
         return full_text
 
     async def _run_tts_stream(
@@ -509,6 +524,14 @@ class AgentRuntime:
             voice_ref=self._tts_config.voice_ref,
             text=text,
             params=self._tts_config.params,
+        )
+        logger.info(
+            "tts_started",
+            extra={
+                "session_id": str(self._context.session_id),
+                "turn_id": str(turn.id),
+                "provider_key": self._tts_config.provider_key,
+            },
         )
 
         try:
@@ -529,6 +552,15 @@ class AgentRuntime:
                         text_range=text_range,
                     )
                 )
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return
+            logger.info(
+                "tts_completed",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn.id),
+                },
+            )
         except ProviderError as exc:
             if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
                 return

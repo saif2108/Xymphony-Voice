@@ -1,4 +1,4 @@
-"""Minimal runtime worker entrypoint — joins LiveKit via MediaTransport."""
+"""Minimal runtime worker entrypoint — full voice agent via RuntimeMediaBridge."""
 
 from __future__ import annotations
 
@@ -6,18 +6,21 @@ import argparse
 import asyncio
 import logging
 import os
-from uuid import uuid4
+from uuid import UUID
 
+from xymphony_api.config import Settings
+from xymphony_api.db import get_session_factory
 from xymphony_contracts.media_transport import MediaTransportConfig
 from xymphony_realtime import LiveKitCredentials, LiveKitMediaTransport, mint_participant_token
 from xymphony_runtime import RuntimeWorkerSession
+from xymphony_runtime_worker.bootstrap import build_voice_worker_from_db
 
 logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Xymphony minimal realtime transport worker")
-    parser.add_argument("--room", default=os.getenv("LIVEKIT_ROOM", "xymphony-dev"))
+    parser = argparse.ArgumentParser(description="Xymphony realtime voice worker")
+    parser.add_argument("--room", default=os.getenv("LIVEKIT_ROOM"))
     parser.add_argument(
         "--identity",
         default=os.getenv("LIVEKIT_WORKER_IDENTITY", "xymphony-worker"),
@@ -61,25 +64,51 @@ def build_transport_config(*, room: str, identity: str) -> MediaTransportConfig:
     )
 
 
-async def run_worker(*, room: str, identity: str, session_id: str) -> None:
-    worker = RuntimeWorkerSession(session_id=session_id)
-    transport = LiveKitMediaTransport()
-    config = build_transport_config(room=room, identity=identity)
-    logger.info(
-        "worker_starting",
-        extra={"session_id": session_id, "room": room, "identity": identity},
-    )
-    await worker.run(transport, config)
+def parse_session_id(raw: str | None) -> UUID:
+    if not raw:
+        raise SystemExit("XYMPHONY_SESSION_ID (or --session-id) is required")
+    try:
+        return UUID(raw)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid session id: {raw}") from exc
+
+
+async def run_worker(*, room: str | None, identity: str, session_id: UUID) -> None:
+    settings = Settings()
+    factory = get_session_factory(settings)
+    sql = factory()
+    try:
+        transport = LiveKitMediaTransport()
+        components = build_voice_worker_from_db(sql, session_id, transport=transport)
+        resolved_room = room or components.session.livekit_room or "xymphony-dev"
+        config = build_transport_config(room=resolved_room, identity=identity)
+        worker = RuntimeWorkerSession(components.bridge)
+        logger.info(
+            "worker_starting",
+            extra={
+                "session_id": str(session_id),
+                "room": resolved_room,
+                "identity": identity,
+                "agent_version_id": str(components.agent_version.id),
+            },
+        )
+        await worker.run(config)
+        sql.commit()
+    except Exception:
+        sql.rollback()
+        raise
+    finally:
+        sql.close()
     logger.info(
         "worker_stopped",
-        extra={"session_id": session_id, "lifecycle_state": worker.lifecycle_state.value},
+        extra={"session_id": str(session_id)},
     )
 
 
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     args = build_parser().parse_args()
-    session_id = args.session_id or str(uuid4())
+    session_id = parse_session_id(args.session_id)
     asyncio.run(run_worker(room=args.room, identity=args.identity, session_id=session_id))
 
 

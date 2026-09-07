@@ -6,39 +6,54 @@ import asyncio
 import logging
 import signal
 
-from xymphony_contracts.media_transport import MediaTransport, MediaTransportConfig
+from xymphony_contracts.media_transport import MediaTransportConfig
+from xymphony_runtime.bridge import RuntimeMediaBridge
 from xymphony_runtime.lifecycle import RuntimeSessionLifecycleState
 from xymphony_runtime.observations import RuntimeObservation
-from xymphony_runtime.session import MinimalTransportSession
 
 logger = logging.getLogger(__name__)
 
 
 class RuntimeWorkerSession:
-    """Owns MinimalTransportSession lifecycle inside the runtime worker process."""
+    """Owns RuntimeMediaBridge lifecycle inside the runtime worker process."""
 
-    def __init__(self, session_id: str) -> None:
-        self.session_id = session_id
-        self._session = MinimalTransportSession(session_id=session_id)
+    def __init__(self, bridge: RuntimeMediaBridge) -> None:
+        self._bridge = bridge
+
+    @property
+    def session_id(self) -> str:
+        return str(self._bridge.runtime.context.session_id)
+
+    @property
+    def bridge(self) -> RuntimeMediaBridge:
+        return self._bridge
 
     @property
     def lifecycle_state(self) -> RuntimeSessionLifecycleState:
-        return self._session.lifecycle_state
+        return self._bridge.lifecycle_state
 
     @property
     def observations(self) -> tuple[RuntimeObservation, ...]:
-        return self._session.observations
+        return self._bridge.observations
 
-    @property
-    def session(self) -> MinimalTransportSession:
-        return self._session
-
-    async def run(self, transport: MediaTransport, config: MediaTransportConfig) -> None:
+    async def run(self, config: MediaTransportConfig) -> None:
         self._install_signal_handlers()
-        await self._session.run(transport, config)
+        logger.info(
+            "worker_session_starting",
+            extra={"session_id": self.session_id, "room": config.room_name},
+        )
+        await self._bridge.run(config)
+        logger.info(
+            "worker_session_ended",
+            extra={
+                "session_id": self.session_id,
+                "lifecycle_state": self.lifecycle_state.value,
+            },
+        )
 
     async def shutdown(self) -> None:
-        await self._session.shutdown()
+        logger.info("worker_session_shutdown_requested", extra={"session_id": self.session_id})
+        await self._bridge.shutdown()
 
     def _install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()

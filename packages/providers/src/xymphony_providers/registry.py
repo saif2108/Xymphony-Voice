@@ -15,9 +15,15 @@ from xymphony_providers.openai_llm import OpenAILLMProvider
 _LLM_SUPPORTED = frozenset({"openai"})
 _STT_SUPPORTED = frozenset({"assemblyai"})
 _TTS_SUPPORTED = frozenset({"elevenlabs"})
+_LLM_ALIASES = {"openai_compatible": "openai"}
+
+
+def normalize_llm_provider_key(provider_key: str) -> str:
+    return _LLM_ALIASES.get(provider_key, provider_key)
 
 
 def create_llm_provider(provider_key: str, *, model: str) -> LLMProvider:
+    provider_key = normalize_llm_provider_key(provider_key)
     if provider_key not in _LLM_SUPPORTED:
         raise ProviderError(
             code=ProviderErrorCode.INVALID_REQUEST,

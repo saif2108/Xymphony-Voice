@@ -3,16 +3,17 @@
 import asyncio
 
 import pytest
+from tests.unit.runtime_worker.test_voice_worker_integration import _make_worker
 
 from xymphony_contracts.media_transport import MediaTransportConfig
-from xymphony_realtime import FakeMediaTransport
 from xymphony_runtime import RuntimeSessionLifecycleState, RuntimeWorkerSession
 
 
 @pytest.mark.asyncio
 async def test_worker_session_runs_lifecycle() -> None:
-    transport = FakeMediaTransport()
-    worker = RuntimeWorkerSession(session_id="worker-1")
+    components = _make_worker()
+    transport = components.bridge.transport
+    worker = RuntimeWorkerSession(components.bridge)
     config = MediaTransportConfig(
         url="wss://example.livekit.cloud",
         room_name="dev-room",
@@ -20,7 +21,7 @@ async def test_worker_session_runs_lifecycle() -> None:
         token="token",
     )
 
-    run_task = asyncio.create_task(worker.run(transport, config))
+    run_task = asyncio.create_task(worker.run(config))
     await asyncio.sleep(0)
     await worker.shutdown()
     await run_task

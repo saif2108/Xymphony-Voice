@@ -39,6 +39,9 @@ async def test_elevenlabs_adapter_normalizes_stream_chunks() -> None:
     assert len(chunks) == 3
     assert chunks[0].is_final is False
     assert chunks[-1].is_final is True
+    resolved = provider.resolve_output_audio(chunks[0].audio_ref)
+    assert resolved is not None
+    assert resolved.data == b"\x00\x01"
 
 
 def test_normalize_auth_error_does_not_leak_key() -> None:

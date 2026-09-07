@@ -285,15 +285,16 @@ class RuntimeMediaBridge:
             current_turn = self._runtime.current_turn
             if current_turn is not None and not current_turn.state.is_terminal:
                 logger.info(
-                    "bridge_audio_input_started_ignored",
+                    "bridge_barge_in",
                     extra={
                         "session_id": str(self._runtime.context.session_id),
                         "participant": event.participant_identity,
+                        "turn_id": str(current_turn.id),
                     },
                 )
-                return
+                await self._runtime.handle_input(RuntimeInput.cancel_turn(current_turn.id))
             logger.info(
-                "bridge_audio_input_started",
+                "bridge_user_speech_started",
                 extra={
                     "session_id": str(self._runtime.context.session_id),
                     "participant": event.participant_identity,
@@ -313,7 +314,7 @@ class RuntimeMediaBridge:
             )
             return
         logger.info(
-            "bridge_audio_input_ended",
+            "bridge_user_speech_ended",
             extra={
                 "session_id": str(self._runtime.context.session_id),
                 "participant": event.participant_identity,

@@ -5,6 +5,8 @@ description = "Xymphony Voice minimal realtime transport worker"
 requires-python = ">=3.12"
 dependencies = [
     "xymphony-agent-runtime",
+    "xymphony-api",
+    "xymphony-providers",
     "xymphony-realtime",
 ]
 
