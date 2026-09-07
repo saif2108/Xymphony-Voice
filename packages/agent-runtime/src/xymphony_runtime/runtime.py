@@ -9,9 +9,11 @@ from uuid import UUID, uuid4
 
 from xymphony_contracts import Event
 from xymphony_contracts.enums import SessionStatus
+from xymphony_contracts.events import TextRange
 from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRequest, LLMRole
 from xymphony_contracts.provider import ProviderError
 from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
+from xymphony_contracts.tts import TTSProvider, TTSRequest
 from xymphony_runtime.cancellation import EventCancellationToken
 from xymphony_runtime.context import RuntimeContext
 from xymphony_runtime.dispatch import (
@@ -22,6 +24,7 @@ from xymphony_runtime.dispatch import (
     session_ended_event,
     session_started_event,
     transcript_frame_event,
+    tts_chunk_event,
     user_speech_ended_event,
     user_speech_started_event,
 )
@@ -35,6 +38,7 @@ from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk
 from xymphony_runtime.stt_config import STTRuntimeConfig
+from xymphony_runtime.tts_config import TTSRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn
 
 logger = logging.getLogger(__name__)
@@ -54,6 +58,8 @@ class AgentRuntime:
         llm_config: LLMRuntimeConfig | None = None,
         stt_provider: STTProvider | None = None,
         stt_config: STTRuntimeConfig | None = None,
+        tts_provider: TTSProvider | None = None,
+        tts_config: TTSRuntimeConfig | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
@@ -61,6 +67,8 @@ class AgentRuntime:
         self._llm_config = llm_config
         self._stt_provider = stt_provider
         self._stt_config = stt_config
+        self._tts_provider = tts_provider
+        self._tts_config = tts_config
         self._running = False
         self._turns: dict[UUID, RuntimeTurn] = {}
         self._current_turn_id: UUID | None = None
@@ -71,6 +79,7 @@ class AgentRuntime:
         self._stt_cancel_tokens: dict[UUID, EventCancellationToken] = {}
         self._stt_audio_queues: dict[UUID, asyncio.Queue[STTAudioFrame | None]] = {}
         self._stt_tasks: dict[UUID, asyncio.Task[None]] = {}
+        self._tts_cancel_tokens: dict[UUID, EventCancellationToken] = {}
 
     @property
     def context(self) -> RuntimeContext:
@@ -185,10 +194,23 @@ class AgentRuntime:
 
         cancel_token = EventCancellationToken()
         self._llm_cancel_tokens[turn.id] = cancel_token
+        self._tts_cancel_tokens[turn.id] = cancel_token
         try:
-            await self._run_llm_stream(turn, runtime_input.text.strip(), cancel_token)
+            assistant_text = await self._run_llm_stream(
+                turn,
+                runtime_input.text.strip(),
+                cancel_token,
+            )
+            if assistant_text is None or turn.state.is_terminal:
+                return
+            if self._tts_provider is not None and self._tts_config is not None:
+                await self._run_tts_stream(turn, assistant_text, cancel_token)
+            if turn.state.is_terminal:
+                return
+            await self._complete_turn(turn)
         finally:
             self._llm_cancel_tokens.pop(turn.id, None)
+            self._tts_cancel_tokens.pop(turn.id, None)
 
     async def _handle_user_speech_started(self) -> None:
         turn = self._begin_turn()
@@ -317,6 +339,9 @@ class AgentRuntime:
         stt_cancel_token = self._stt_cancel_tokens.get(turn_id)
         if stt_cancel_token is not None:
             stt_cancel_token.cancel()
+        tts_cancel_token = self._tts_cancel_tokens.get(turn_id)
+        if tts_cancel_token is not None:
+            tts_cancel_token.cancel()
         self._context.cancel_turn(turn_id)
         turn.cancel()
         self.admit_event(agent_interrupted_event(self._context, turn_id=turn_id))
@@ -358,9 +383,9 @@ class AgentRuntime:
         turn: RuntimeTurn,
         text: str,
         cancel: EventCancellationToken,
-    ) -> None:
+    ) -> str | None:
         if self._llm_provider is None or self._llm_config is None:
-            return
+            return None
 
         request = LLMRequest(
             provider_key=self._llm_config.provider_key,
@@ -375,7 +400,7 @@ class AgentRuntime:
         try:
             async for chunk in self._llm_provider.stream(request, cancel=cancel):
                 if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
-                    return
+                    return None
                 if chunk.delta:
                     full_text_parts.append(chunk.delta)
                     self.admit_event(
@@ -385,7 +410,7 @@ class AgentRuntime:
                     finish_reason = chunk.finish_reason
         except ProviderError as exc:
             if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
-                return
+                return None
             turn.fail(error_code=exc.code.value)
             self.admit_event(
                 error_event(
@@ -407,10 +432,10 @@ class AgentRuntime:
                     "provider_key": exc.provider_key,
                 },
             )
-            return
+            return None
 
         if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
-            return
+            return None
 
         full_text = "".join(full_text_parts)
         self.admit_event(
@@ -421,7 +446,66 @@ class AgentRuntime:
                 finish_reason=finish_reason,
             )
         )
-        await self._complete_turn(turn)
+        return full_text
+
+    async def _run_tts_stream(
+        self,
+        turn: RuntimeTurn,
+        text: str,
+        cancel: EventCancellationToken,
+    ) -> None:
+        if self._tts_provider is None or self._tts_config is None:
+            return
+
+        request = TTSRequest(
+            provider_key=self._tts_config.provider_key,
+            voice_ref=self._tts_config.voice_ref,
+            text=text,
+            params=self._tts_config.params,
+        )
+
+        try:
+            async for chunk in self._tts_provider.stream(request, cancel=cancel):
+                if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                    return
+                text_range = None
+                if chunk.text_range is not None:
+                    text_range = TextRange(
+                        start=chunk.text_range.start,
+                        end=chunk.text_range.end,
+                    )
+                self.admit_event(
+                    tts_chunk_event(
+                        self._context,
+                        turn_id=turn.id,
+                        audio_ref=chunk.audio_ref,
+                        text_range=text_range,
+                    )
+                )
+        except ProviderError as exc:
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return
+            turn.fail(error_code=exc.code.value)
+            self.admit_event(
+                error_event(
+                    self._context,
+                    code=exc.code.value,
+                    message=exc.message,
+                    turn_id=turn.id,
+                    retryable=exc.retryable,
+                )
+            )
+            if self._current_turn_id == turn.id:
+                self._current_turn_id = None
+            logger.info(
+                "tts_provider_error",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn.id),
+                    "error_code": exc.code.value,
+                    "provider_key": exc.provider_key,
+                },
+            )
 
     async def _audio_from_queue(
         self,

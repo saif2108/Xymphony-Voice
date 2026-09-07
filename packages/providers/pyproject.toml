@@ -7,6 +7,7 @@ dependencies = [
     "xymphony-contracts",
     "openai>=1.60",
     "assemblyai>=0.40",
+    "elevenlabs>=1.0",
 ]
 
 [tool.uv.sources]

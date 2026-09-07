@@ -15,7 +15,9 @@ from xymphony_contracts.events import (
     LLMTokenPayload,
     SessionEndedPayload,
     SessionStartedPayload,
+    TextRange,
     TranscriptFramePayload,
+    TTSChunkPayload,
     UserSpeechEndedPayload,
     UserSpeechStartedPayload,
 )
@@ -174,4 +176,20 @@ def transcript_frame_event(
         ),
         turn_id=turn_id,
         source=EventSource.STT,
+    )
+
+
+def tts_chunk_event(
+    context: RuntimeContext,
+    *,
+    turn_id: UUID,
+    audio_ref: str,
+    text_range: TextRange | None = None,
+) -> Event:
+    return build_event(
+        context,
+        event_type=EventType.TTS_CHUNK,
+        payload=TTSChunkPayload(audio_ref=audio_ref, text_range=text_range),
+        turn_id=turn_id,
+        source=EventSource.TTS,
     )

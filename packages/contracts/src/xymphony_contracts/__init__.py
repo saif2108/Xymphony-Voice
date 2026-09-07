@@ -57,6 +57,13 @@ from xymphony_contracts.stt import (
     STTRequest,
     STTTranscriptChunk,
 )
+from xymphony_contracts.tts import (
+    TTSProvider,
+    TTSRequest,
+    TTSResponse,
+    TTSStreamChunk,
+    TTSTextRange,
+)
 from xymphony_contracts.usage import Usage
 
 __all__ = [
@@ -107,6 +114,11 @@ __all__ = [
     "SessionStatus",
     "TTSBinding",
     "TTSChunkPayload",
+    "TTSProvider",
+    "TTSRequest",
+    "TTSResponse",
+    "TTSStreamChunk",
+    "TTSTextRange",
     "TranscriptFramePayload",
     "Turn",
     "TurnStatus",
