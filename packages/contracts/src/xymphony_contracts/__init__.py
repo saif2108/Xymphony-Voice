@@ -50,6 +50,13 @@ from xymphony_contracts.llm import (
 )
 from xymphony_contracts.providers import LLMBinding, STTBinding, TTSBinding
 from xymphony_contracts.session import Message, Session, Turn
+from xymphony_contracts.stt import (
+    STTAudioFormat,
+    STTAudioFrame,
+    STTProvider,
+    STTRequest,
+    STTTranscriptChunk,
+)
 from xymphony_contracts.usage import Usage
 
 __all__ = [
@@ -88,6 +95,11 @@ __all__ = [
     "MessageRole",
     "MessageStatus",
     "STTBinding",
+    "STTAudioFormat",
+    "STTAudioFrame",
+    "STTProvider",
+    "STTRequest",
+    "STTTranscriptChunk",
     "Session",
     "SessionEndReason",
     "SessionEndedPayload",

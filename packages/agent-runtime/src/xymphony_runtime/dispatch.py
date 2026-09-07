@@ -15,6 +15,7 @@ from xymphony_contracts.events import (
     LLMTokenPayload,
     SessionEndedPayload,
     SessionStartedPayload,
+    TranscriptFramePayload,
     UserSpeechEndedPayload,
     UserSpeechStartedPayload,
 )
@@ -148,4 +149,29 @@ def llm_response_event(
         payload=LLMResponsePayload(text=text, finish_reason=finish_reason, usage=usage),
         turn_id=turn_id,
         source=EventSource.LLM,
+    )
+
+
+def transcript_frame_event(
+    context: RuntimeContext,
+    *,
+    turn_id: UUID,
+    text: str,
+    is_final: bool,
+    start_ms: int = 0,
+    end_ms: int = 0,
+    confidence: float | None = None,
+) -> Event:
+    return build_event(
+        context,
+        event_type=EventType.TRANSCRIPT_FRAME,
+        payload=TranscriptFramePayload(
+            text=text,
+            is_final=is_final,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            confidence=confidence,
+        ),
+        turn_id=turn_id,
+        source=EventSource.STT,
     )

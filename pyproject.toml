@@ -57,6 +57,7 @@ pythonpath = [
 markers = [
     "livekit: optional LiveKit Cloud integration tests",
     "openai: optional OpenAI integration tests",
+    "assemblyai: optional AssemblyAI integration tests",
 ]
 
 [tool.ruff]

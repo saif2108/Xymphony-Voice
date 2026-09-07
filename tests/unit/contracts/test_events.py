@@ -116,6 +116,23 @@ def test_stale_llm_and_tts_dropped_after_cancel() -> None:
     assert speech.is_stale_for_cancelled_turns(frozenset({cancelled})) is False
 
 
+def test_stale_transcript_dropped_after_cancel() -> None:
+    cancelled = uuid4()
+    transcript = _event(
+        type=EventType.TRANSCRIPT_FRAME,
+        turn_id=cancelled,
+        source=EventSource.STT,
+        payload={
+            "text": "partial",
+            "is_final": False,
+            "start_ms": 0,
+            "end_ms": 100,
+        },
+        sequence=13,
+    )
+    assert transcript.is_stale_for_cancelled_turns(frozenset({cancelled})) is True
+
+
 def test_error_is_not_stale_during_cancel() -> None:
     cancelled = uuid4()
     error = _event(

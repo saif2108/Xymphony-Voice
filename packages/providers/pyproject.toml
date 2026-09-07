@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "xymphony-contracts",
     "openai>=1.60",
+    "assemblyai>=0.40",
 ]
 
 [tool.uv.sources]

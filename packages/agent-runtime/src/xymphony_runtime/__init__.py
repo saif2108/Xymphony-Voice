@@ -15,6 +15,7 @@ from xymphony_runtime.observations import LifecycleTransition, RuntimeObservatio
 from xymphony_runtime.runtime import AgentRuntime
 from xymphony_runtime.session import MinimalTransportSession
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk, StreamChunkKind
+from xymphony_runtime.stt_config import STTRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn, RuntimeTurnLifecycleState
 from xymphony_runtime.worker import RuntimeWorkerSession
 
@@ -37,6 +38,7 @@ __all__ = [
     "RuntimeTurn",
     "RuntimeTurnLifecycleState",
     "RuntimeWorkerSession",
+    "STTRuntimeConfig",
     "StaleTurnEventError",
     "StreamChunkKind",
 ]

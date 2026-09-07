@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from uuid import UUID, uuid4
 
 from xymphony_contracts import Event
 from xymphony_contracts.enums import SessionStatus
-from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRequest, LLMRole, ProviderError
+from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRequest, LLMRole
+from xymphony_contracts.provider import ProviderError
+from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
 from xymphony_runtime.cancellation import EventCancellationToken
 from xymphony_runtime.context import RuntimeContext
 from xymphony_runtime.dispatch import (
@@ -19,6 +21,7 @@ from xymphony_runtime.dispatch import (
     llm_token_event,
     session_ended_event,
     session_started_event,
+    transcript_frame_event,
     user_speech_ended_event,
     user_speech_started_event,
 )
@@ -31,6 +34,7 @@ from xymphony_runtime.errors import (
 from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk
+from xymphony_runtime.stt_config import STTRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn
 
 logger = logging.getLogger(__name__)
@@ -48,11 +52,15 @@ class AgentRuntime:
         output_sink: IncrementalOutputSink | None = None,
         llm_provider: LLMProvider | None = None,
         llm_config: LLMRuntimeConfig | None = None,
+        stt_provider: STTProvider | None = None,
+        stt_config: STTRuntimeConfig | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
         self._llm_provider = llm_provider
         self._llm_config = llm_config
+        self._stt_provider = stt_provider
+        self._stt_config = stt_config
         self._running = False
         self._turns: dict[UUID, RuntimeTurn] = {}
         self._current_turn_id: UUID | None = None
@@ -60,6 +68,9 @@ class AgentRuntime:
         self._active_tasks: set[asyncio.Task[None]] = set()
         self._listeners: list[EventListener] = []
         self._llm_cancel_tokens: dict[UUID, EventCancellationToken] = {}
+        self._stt_cancel_tokens: dict[UUID, EventCancellationToken] = {}
+        self._stt_audio_queues: dict[UUID, asyncio.Queue[STTAudioFrame | None]] = {}
+        self._stt_tasks: dict[UUID, asyncio.Task[None]] = {}
 
     @property
     def context(self) -> RuntimeContext:
@@ -123,6 +134,8 @@ class AgentRuntime:
                 await self._handle_user_speech_started()
             case RuntimeInputKind.USER_SPEECH_ENDED:
                 await self._handle_user_speech_ended()
+            case RuntimeInputKind.AUDIO_FRAME:
+                await self._handle_audio_frame(runtime_input)
             case RuntimeInputKind.CANCEL_TURN:
                 await self._handle_cancel_turn(runtime_input.turn_id)
             case RuntimeInputKind.SHUTDOWN:
@@ -180,13 +193,55 @@ class AgentRuntime:
     async def _handle_user_speech_started(self) -> None:
         turn = self._begin_turn()
         self.admit_event(user_speech_started_event(self._context, turn_id=turn.id))
+        if self._stt_provider is None or self._stt_config is None:
+            return
+
+        queue: asyncio.Queue[STTAudioFrame | None] = asyncio.Queue()
+        cancel_token = EventCancellationToken()
+        self._stt_audio_queues[turn.id] = queue
+        self._stt_cancel_tokens[turn.id] = cancel_token
+        task = self._track_task(
+            asyncio.create_task(self._run_stt_stream(turn, queue, cancel_token))
+        )
+        self._stt_tasks[turn.id] = task
 
     async def _handle_user_speech_ended(self) -> None:
         turn = self.current_turn
         if turn is None or turn.state.is_terminal:
             raise InvalidRuntimeInputError("user speech ended without an active turn")
         self.admit_event(user_speech_ended_event(self._context, turn_id=turn.id))
+        if self._stt_provider is None or self._stt_config is None:
+            await self._complete_turn(turn)
+            return
+
+        queue = self._stt_audio_queues.get(turn.id)
+        if queue is not None:
+            await queue.put(None)
+        task = self._stt_tasks.get(turn.id)
+        if task is not None:
+            await task
+        self._cleanup_stt_turn(turn.id)
+        if turn.state.is_terminal:
+            return
         await self._complete_turn(turn)
+
+    async def _handle_audio_frame(self, runtime_input: RuntimeInput) -> None:
+        if runtime_input.audio_data is None:
+            raise InvalidRuntimeInputError("audio frame must include audio_data")
+        if runtime_input.audio_duration_ms is None:
+            raise InvalidRuntimeInputError("audio frame must include audio_duration_ms")
+        turn_id = self._current_turn_id
+        if turn_id is None:
+            raise InvalidRuntimeInputError("audio frame without an active turn")
+        queue = self._stt_audio_queues.get(turn_id)
+        if queue is None:
+            raise InvalidRuntimeInputError("audio frame without an active stt stream")
+        await queue.put(
+            STTAudioFrame(
+                data=runtime_input.audio_data,
+                duration_ms=runtime_input.audio_duration_ms,
+            )
+        )
 
     async def _handle_cancel_turn(self, turn_id: UUID | None) -> None:
         target_id = turn_id or self._current_turn_id
@@ -259,6 +314,9 @@ class AgentRuntime:
         cancel_token = self._llm_cancel_tokens.get(turn_id)
         if cancel_token is not None:
             cancel_token.cancel()
+        stt_cancel_token = self._stt_cancel_tokens.get(turn_id)
+        if stt_cancel_token is not None:
+            stt_cancel_token.cancel()
         self._context.cancel_turn(turn_id)
         turn.cancel()
         self.admit_event(agent_interrupted_event(self._context, turn_id=turn_id))
@@ -364,3 +422,78 @@ class AgentRuntime:
             )
         )
         await self._complete_turn(turn)
+
+    async def _audio_from_queue(
+        self,
+        queue: asyncio.Queue[STTAudioFrame | None],
+        cancel: EventCancellationToken,
+    ) -> AsyncIterator[STTAudioFrame]:
+        while True:
+            if cancel.cancelled:
+                return
+            frame = await queue.get()
+            if frame is None:
+                return
+            yield frame
+
+    def _cleanup_stt_turn(self, turn_id: UUID) -> None:
+        self._stt_audio_queues.pop(turn_id, None)
+        self._stt_tasks.pop(turn_id, None)
+        self._stt_cancel_tokens.pop(turn_id, None)
+
+    async def _run_stt_stream(
+        self,
+        turn: RuntimeTurn,
+        queue: asyncio.Queue[STTAudioFrame | None],
+        cancel: EventCancellationToken,
+    ) -> None:
+        if self._stt_provider is None or self._stt_config is None:
+            return
+
+        request = STTRequest(
+            provider_key=self._stt_config.provider_key,
+            model=self._stt_config.model,
+            language=self._stt_config.language,
+            params=self._stt_config.params,
+        )
+
+        try:
+            audio = self._audio_from_queue(queue, cancel)
+            async for chunk in self._stt_provider.transcribe(request, audio, cancel=cancel):
+                if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                    return
+                self.admit_event(
+                    transcript_frame_event(
+                        self._context,
+                        turn_id=turn.id,
+                        text=chunk.text,
+                        is_final=chunk.is_final,
+                        start_ms=chunk.start_ms,
+                        end_ms=chunk.end_ms,
+                        confidence=chunk.confidence,
+                    )
+                )
+        except ProviderError as exc:
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return
+            turn.fail(error_code=exc.code.value)
+            self.admit_event(
+                error_event(
+                    self._context,
+                    code=exc.code.value,
+                    message=exc.message,
+                    turn_id=turn.id,
+                    retryable=exc.retryable,
+                )
+            )
+            if self._current_turn_id == turn.id:
+                self._current_turn_id = None
+            logger.info(
+                "stt_provider_error",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn.id),
+                    "error_code": exc.code.value,
+                    "provider_key": exc.provider_key,
+                },
+            )

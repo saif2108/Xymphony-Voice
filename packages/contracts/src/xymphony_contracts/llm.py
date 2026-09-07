@@ -8,7 +8,23 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from xymphony_contracts.provider import CancellationToken, ProviderError, ProviderErrorCode
 from xymphony_contracts.usage import Usage
+
+__all__ = [
+    "CancellationToken",
+    "LLMMessage",
+    "LLMProvider",
+    "LLMRequest",
+    "LLMResponse",
+    "LLMRole",
+    "LLMStreamChunk",
+    "LLMToolCall",
+    "LLMToolDefinition",
+    "ProviderError",
+    "ProviderErrorCode",
+    "StreamHandler",
+]
 
 
 class LLMRole(StrEnum):
@@ -16,34 +32,6 @@ class LLMRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
     TOOL = "tool"
-
-
-class ProviderErrorCode(StrEnum):
-    TIMEOUT = "timeout"
-    CANCELLED = "cancelled"
-    RATE_LIMIT = "rate_limit"
-    AUTH = "auth"
-    INVALID_REQUEST = "invalid_request"
-    PROVIDER = "provider"
-    UNKNOWN = "unknown"
-
-
-class ProviderError(Exception):
-    """Normalized provider failure surfaced to the runtime."""
-
-    def __init__(
-        self,
-        *,
-        code: ProviderErrorCode,
-        message: str,
-        provider_key: str,
-        retryable: bool = False,
-    ) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.provider_key = provider_key
-        self.retryable = retryable
 
 
 class LLMMessage(BaseModel):
@@ -94,11 +82,6 @@ class LLMResponse(BaseModel):
     finish_reason: str = Field(min_length=1, max_length=64)
     usage: Usage | None = None
     tool_calls: tuple[LLMToolCall, ...] = ()
-
-
-class CancellationToken(Protocol):
-    @property
-    def cancelled(self) -> bool: ...
 
 
 StreamHandler = Callable[[LLMStreamChunk], Awaitable[None] | None]

@@ -38,6 +38,7 @@ STALE_IF_TURN_CANCELLED: frozenset[EventType] = frozenset(
         EventType.LLM_RESPONSE,
         EventType.TTS_CHUNK,
         EventType.AUDIO_FRAME,
+        EventType.TRANSCRIPT_FRAME,
     }
 )
 
