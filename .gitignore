@@ -1,0 +1,40 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local data
+*.log
+coverage/
+htmlcov/
+minio-data/
+postgres-data/
+
+# Audio fixtures may be large; allow small committed testdata later
+*.pcm
+*.wav
+!tests/**/fixtures/*.wav

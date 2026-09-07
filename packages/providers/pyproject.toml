@@ -1,0 +1,22 @@
+[project]
+name = "xymphony-providers"
+version = "0.1.0"
+description = "Provider adapters for Xymphony Voice"
+requires-python = ">=3.12"
+dependencies = [
+    "xymphony-contracts",
+    "openai>=1.60",
+]
+
+[tool.uv.sources]
+xymphony-contracts = { workspace = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xymphony_providers"]

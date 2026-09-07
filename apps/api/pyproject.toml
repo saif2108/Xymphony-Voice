@@ -1,0 +1,32 @@
+[project]
+name = "xymphony-api"
+version = "0.1.0"
+description = "Xymphony Voice control-plane API"
+requires-python = ">=3.12"
+dependencies = [
+    "xymphony-contracts @ file:packages/contracts",
+    "xymphony-realtime @ file:packages/realtime",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+    "pydantic-settings>=2.6",
+]
+
+[tool.uv.sources]
+xymphony-contracts = { workspace = true }
+xymphony-realtime = { workspace = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xymphony_api"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/xymphony_api/static/dev/livekit.html" = "xymphony_api/static/dev/livekit.html"

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: xymphony-postgres
+    environment:
+      POSTGRES_USER: xymphony
+      POSTGRES_PASSWORD: xymphony
+      POSTGRES_DB: xymphony
+    ports:
+      - "5432:5432"
+    volumes:
+      - xymphony_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xymphony -d xymphony"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  xymphony_postgres_data:
