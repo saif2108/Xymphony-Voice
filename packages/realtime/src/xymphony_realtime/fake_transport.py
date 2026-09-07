@@ -14,6 +14,7 @@ from xymphony_contracts.media_transport import (
     TransportAudioFrame,
     TransportAudioInputEvent,
     TransportAudioInputKind,
+    TransportAudioOutputFrame,
     TransportConnectionState,
     TransportErrorEvent,
     TransportErrorHandler,
@@ -37,6 +38,7 @@ class FakeMediaTransport:
         self.simulate_remote_join_identity: str | None = None
         self.fail_on_connect = False
         self.fail_on_connect_message = "connect failed"
+        self.published_output_frames: list[TransportAudioOutputFrame] = []
 
     @property
     def connection_state(self) -> TransportConnectionState:
@@ -92,6 +94,9 @@ class FakeMediaTransport:
 
     async def wait_until_disconnected(self) -> None:
         await self._disconnect_event.wait()
+
+    async def publish_audio_output(self, frame: TransportAudioOutputFrame) -> None:
+        self.published_output_frames.append(frame)
 
     async def simulate_remote_leave(self, identity: str) -> None:
         if self._config is None:

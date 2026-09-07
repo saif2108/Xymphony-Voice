@@ -111,6 +111,10 @@ class AgentRuntime:
     def speech_input_enabled(self) -> bool:
         return self._stt_provider is not None and self._stt_config is not None
 
+    @property
+    def voice_output_enabled(self) -> bool:
+        return self._tts_provider is not None and self._tts_config is not None
+
     def on_event(self, listener: EventListener) -> None:
         self._listeners.append(listener)
 

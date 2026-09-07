@@ -5,19 +5,23 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from typing import cast
 
 from xymphony_contracts import Event
 from xymphony_contracts.enums import EventType
+from xymphony_contracts.events import TTSChunkPayload
 from xymphony_contracts.media_transport import (
     MediaTransport,
     MediaTransportConfig,
     TransportAudioFrame,
     TransportAudioInputEvent,
     TransportAudioInputKind,
+    TransportAudioOutputFrame,
     TransportConnectionState,
     TransportErrorEvent,
     TransportParticipantEvent,
 )
+from xymphony_contracts.tts import TTSOutputAudioResolver
 from xymphony_runtime.errors import RuntimeNotRunningError
 from xymphony_runtime.input import RuntimeInput
 from xymphony_runtime.lifecycle import RuntimeSessionLifecycleState
@@ -45,9 +49,11 @@ class RuntimeMediaBridge:
         *,
         runtime: AgentRuntime,
         transport: MediaTransport,
+        tts_output_resolver: TTSOutputAudioResolver | None = None,
     ) -> None:
         self._runtime = runtime
         self._transport = transport
+        self._tts_output_resolver = tts_output_resolver
         self._shutdown = asyncio.Event()
         self._lifecycle_state = RuntimeSessionLifecycleState.INITIALIZING
         self._observations: list[RuntimeObservation] = []
@@ -56,6 +62,8 @@ class RuntimeMediaBridge:
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._runtime_listener_registered = False
         self._transport_handlers_registered = False
+        self._output_chunk_indexes: dict[str, int] = {}
+        self._transport_config: MediaTransportConfig | None = None
         self.connection_states: list[TransportConnectionState] = []
         self.participant_events: list[TransportParticipantEvent] = []
         self.errors: list[TransportErrorEvent] = []
@@ -86,6 +94,13 @@ class RuntimeMediaBridge:
             event for event in self._runtime_events if event.type in _ASSISTANT_OUTPUT_EVENT_TYPES
         )
 
+    @property
+    def published_output_frames(self) -> tuple[TransportAudioOutputFrame, ...]:
+        publish = getattr(self._transport, "published_output_frames", None)
+        if isinstance(publish, list):
+            return tuple(publish)
+        return ()
+
     def on_runtime_event(self, handler: RuntimeEventHandler) -> None:
         self._runtime_event_handlers.append(handler)
 
@@ -105,6 +120,7 @@ class RuntimeMediaBridge:
         try:
             await self._runtime.start()
             self._transition(RuntimeSessionLifecycleState.CONNECTING)
+            self._transport_config = config
             await self._transport.connect(config)
             self._transition(RuntimeSessionLifecycleState.CONNECTED)
 
@@ -168,8 +184,74 @@ class RuntimeMediaBridge:
             self._runtime_events.append(event)
             for handler in self._runtime_event_handlers:
                 handler(event)
+            if event.type == EventType.TTS_CHUNK:
+                self._track_task(asyncio.create_task(self._publish_tts_output(event)))
 
         self._runtime.on_event(_listener)
+
+    async def _publish_tts_output(self, event: Event) -> None:
+        if not self._voice_output_enabled():
+            return
+        if event.turn_id is None:
+            return
+        if self._runtime.context.is_turn_cancelled(event.turn_id):
+            return
+        payload = event.payload
+        if not isinstance(payload, TTSChunkPayload):
+            return
+        resolver = self._resolve_tts_output_audio()
+        if resolver is None:
+            return
+        audio = resolver.resolve_output_audio(payload.audio_ref)
+        if audio is None:
+            logger.info(
+                "bridge_tts_output_unresolved",
+                extra={
+                    "session_id": str(self._runtime.context.session_id),
+                    "turn_id": str(event.turn_id),
+                    "audio_ref": payload.audio_ref,
+                },
+            )
+            return
+        turn_key = str(event.turn_id)
+        chunk_index = self._output_chunk_indexes.get(turn_key, 0)
+        self._output_chunk_indexes[turn_key] = chunk_index + 1
+        room_name = self._transport_config.room_name if self._transport_config else ""
+        output_frame = TransportAudioOutputFrame(
+            room_name=room_name,
+            data=audio.data,
+            sample_rate_hz=audio.sample_rate_hz,
+            channels=audio.channels,
+            duration_ms=audio.duration_ms,
+            chunk_index=chunk_index,
+            turn_id=turn_key,
+        )
+        logger.info(
+            "bridge_tts_output_published",
+            extra={
+                "session_id": str(self._runtime.context.session_id),
+                "turn_id": turn_key,
+                "chunk_index": chunk_index,
+                "duration_ms": audio.duration_ms,
+            },
+        )
+        await self._transport.publish_audio_output(output_frame)
+
+    def _resolve_tts_output_audio(self) -> TTSOutputAudioResolver | None:
+        if self._tts_output_resolver is not None:
+            return self._tts_output_resolver
+        provider = getattr(self._runtime, "_tts_provider", None)
+        if provider is not None and hasattr(provider, "resolve_output_audio"):
+            return cast(TTSOutputAudioResolver, provider)
+        return None
+
+    def _voice_output_enabled(self) -> bool:
+        return (
+            self._runtime.running
+            and not self._runtime.context.shutdown_requested
+            and self._runtime.voice_output_enabled
+            and self._resolve_tts_output_audio() is not None
+        )
 
     async def _wait_for_shutdown(self) -> None:
         await self._shutdown.wait()

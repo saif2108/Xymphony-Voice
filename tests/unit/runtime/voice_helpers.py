@@ -25,6 +25,8 @@ def make_voice_runtime(
     stt_delay_seconds: float = 0,
     stt_fail_with: object = None,
     tts_chunks: list[str] | None = None,
+    tts_chunk_audio: dict[str, bytes] | None = None,
+    tts_delay_seconds: float = 0,
 ) -> AgentRuntime:
     if llm_provider is None:
         llm_provider = FakeLLMProvider(chunks=llm_chunks or ["assistant reply"])
@@ -45,7 +47,14 @@ def make_voice_runtime(
         "stt_config": STTRuntimeConfig(provider_key="fake", model="fake-model"),
     }
     if tts_provider is not None or tts_chunks is not None:
-        kwargs["tts_provider"] = tts_provider or FakeTTSProvider(chunks=tts_chunks or ["audio"])
+        tts_kwargs: dict[str, object] = {}
+        if tts_chunks is not None:
+            tts_kwargs["chunks"] = tts_chunks
+        if tts_chunk_audio is not None:
+            tts_kwargs["chunk_audio"] = tts_chunk_audio
+        if tts_delay_seconds:
+            tts_kwargs["delay_seconds"] = tts_delay_seconds
+        kwargs["tts_provider"] = tts_provider or FakeTTSProvider(**tts_kwargs)
         kwargs["tts_config"] = pipeline_tts_config()
 
     return AgentRuntime(pipeline_context(), **kwargs)
@@ -61,8 +70,14 @@ def make_voice_bridge(
     stt = stt_provider or FakeSTTProvider()
     resolved_runtime = runtime or make_voice_runtime(stt_provider=stt, **runtime_kwargs)
     resolved_transport = transport or FakeMediaTransport()
+    tts_resolver = resolved_runtime._tts_provider  # noqa: SLF001
+    resolver = tts_resolver if hasattr(tts_resolver, "resolve_output_audio") else None
     return (
-        RuntimeMediaBridge(runtime=resolved_runtime, transport=resolved_transport),
+        RuntimeMediaBridge(
+            runtime=resolved_runtime,
+            transport=resolved_transport,
+            tts_output_resolver=resolver,
+        ),
         stt,
         resolved_transport,
     )

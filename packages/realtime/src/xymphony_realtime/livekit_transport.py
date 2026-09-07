@@ -18,6 +18,7 @@ from xymphony_contracts.media_transport import (
     TransportAudioFrame,
     TransportAudioInputEvent,
     TransportAudioInputKind,
+    TransportAudioOutputFrame,
     TransportConnectionState,
     TransportErrorEvent,
     TransportErrorHandler,
@@ -43,6 +44,10 @@ class LiveKitMediaTransport:
         self._disconnect_event = asyncio.Event()
         self._handlers_registered = False
         self._audio_tasks: dict[str, asyncio.Task[None]] = {}
+        self._audio_source: rtc.AudioSource | None = None
+        self._local_audio_track: rtc.LocalAudioTrack | None = None
+        self._output_sample_rate_hz = 16_000
+        self._output_channels = 1
 
     @property
     def connection_state(self) -> TransportConnectionState:
@@ -78,6 +83,7 @@ class LiveKitMediaTransport:
             await self._set_state(TransportConnectionState.FAILED)
             raise
         await self._set_state(TransportConnectionState.CONNECTED)
+        await self._setup_outgoing_audio(config)
         logger.info(
             "livekit_connected",
             extra={"room": config.room_name, "identity": config.participant_identity},
@@ -87,6 +93,7 @@ class LiveKitMediaTransport:
         if self._state == TransportConnectionState.DISCONNECTED:
             return
         await self._cancel_audio_tasks()
+        await self._teardown_outgoing_audio()
         try:
             await self._room.disconnect()
         finally:
@@ -96,6 +103,46 @@ class LiveKitMediaTransport:
 
     async def wait_until_disconnected(self) -> None:
         await self._disconnect_event.wait()
+
+    async def publish_audio_output(self, frame: TransportAudioOutputFrame) -> None:
+        if self._audio_source is None:
+            return
+        bytes_per_sample = 2 * frame.channels
+        if bytes_per_sample <= 0 or len(frame.data) < bytes_per_sample:
+            return
+        samples_per_channel = len(frame.data) // bytes_per_sample
+        lk_frame = rtc.AudioFrame(
+            data=frame.data,
+            sample_rate=frame.sample_rate_hz,
+            num_channels=frame.channels,
+            samples_per_channel=samples_per_channel,
+        )
+        await self._audio_source.capture_frame(lk_frame)
+        logger.info(
+            "livekit_audio_output_published",
+            extra={
+                "room": frame.room_name,
+                "chunk_index": frame.chunk_index,
+                "duration_ms": frame.duration_ms,
+            },
+        )
+
+    async def _setup_outgoing_audio(self, config: MediaTransportConfig) -> None:
+        self._audio_source = rtc.AudioSource(self._output_sample_rate_hz, self._output_channels)
+        self._local_audio_track = rtc.LocalAudioTrack.create_audio_track(
+            "agent-voice",
+            self._audio_source,
+        )
+        options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+        await self._room.local_participant.publish_track(self._local_audio_track, options)
+        logger.info(
+            "livekit_outgoing_audio_ready",
+            extra={"room": config.room_name, "identity": config.participant_identity},
+        )
+
+    async def _teardown_outgoing_audio(self) -> None:
+        self._audio_source = None
+        self._local_audio_track = None
 
     def _register_room_handlers(self) -> None:
         if self._handlers_registered:
@@ -235,6 +282,7 @@ class LiveKitMediaTransport:
 
     async def _handle_room_disconnected(self) -> None:
         await self._cancel_audio_tasks()
+        await self._teardown_outgoing_audio()
         await self._set_state(TransportConnectionState.DISCONNECTED)
         self._disconnect_event.set()
 

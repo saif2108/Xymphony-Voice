@@ -11,6 +11,17 @@ from xymphony_runtime.cancellation import EventCancellationToken
 
 
 @pytest.mark.asyncio
+async def test_fake_tts_resolves_output_audio() -> None:
+    provider = FakeTTSProvider(
+        chunks=["chunk-a"],
+        chunk_audio={"chunk-a": b"\x01\x02"},
+    )
+    resolved = provider.resolve_output_audio("chunk-a")
+    assert resolved is not None
+    assert resolved.data == b"\x01\x02"
+
+
+@pytest.mark.asyncio
 async def test_fake_tts_streams_multiple_chunks() -> None:
     provider = FakeTTSProvider()
     request = TTSRequest(provider_key="fake", voice_ref="voice", text="hello")

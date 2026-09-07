@@ -29,6 +29,7 @@ __all__ = [
     "TransportAudioFrame",
     "TransportAudioInputEvent",
     "TransportAudioInputKind",
+    "TransportAudioOutputFrame",
     "TransportConnectionState",
     "TransportErrorEvent",
     "TransportParticipantEvent",

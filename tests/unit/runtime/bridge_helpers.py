@@ -29,9 +29,13 @@ def make_bridge(
     transport: FakeMediaTransport | None = None,
     **runtime_kwargs: object,
 ) -> RuntimeMediaBridge:
+    resolved_runtime = runtime or bridge_runtime(**runtime_kwargs)
+    tts_resolver = resolved_runtime._tts_provider  # noqa: SLF001
+    resolver = tts_resolver if hasattr(tts_resolver, "resolve_output_audio") else None
     return RuntimeMediaBridge(
-        runtime=runtime or bridge_runtime(**runtime_kwargs),
+        runtime=resolved_runtime,
         transport=transport or FakeMediaTransport(),
+        tts_output_resolver=resolver,
     )
 
 

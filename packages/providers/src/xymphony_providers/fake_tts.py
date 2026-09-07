@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from xymphony_contracts.provider import CancellationToken, ProviderError
-from xymphony_contracts.tts import TTSRequest, TTSStreamChunk
+from xymphony_contracts.tts import TTSOutputAudioFrame, TTSRequest, TTSStreamChunk
 
 
 class FakeTTSProvider:
@@ -16,13 +16,35 @@ class FakeTTSProvider:
         self,
         *,
         chunks: list[str] | None = None,
+        chunk_audio: dict[str, bytes] | None = None,
         fail_with: ProviderError | None = None,
         delay_seconds: float = 0,
     ) -> None:
         self.chunks = chunks or ["fake-audio-0", "fake-audio-1"]
+        self.chunk_audio = chunk_audio or {}
         self.fail_with = fail_with
         self.delay_seconds = delay_seconds
         self.requests: list[TTSRequest] = []
+
+    def resolve_output_audio(self, audio_ref: str) -> TTSOutputAudioFrame | None:
+        data = self.chunk_audio.get(audio_ref)
+        if data is None:
+            if audio_ref not in self.chunks:
+                return None
+            data = self._synthetic_pcm_for_ref(audio_ref)
+        duration_ms = max(1, len(data) // (2 * 1) * 1000 // 16_000)
+        return TTSOutputAudioFrame(
+            data=data,
+            sample_rate_hz=16_000,
+            channels=1,
+            duration_ms=duration_ms,
+        )
+
+    @staticmethod
+    def _synthetic_pcm_for_ref(audio_ref: str) -> bytes:
+        seed = sum(audio_ref.encode()) % 256
+        sample_count = 160
+        return bytes([seed, 0] * sample_count)
 
     async def stream(
         self,

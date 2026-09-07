@@ -54,3 +54,20 @@ class TTSProvider(Protocol):
         *,
         cancel: CancellationToken,
     ) -> AsyncIterator[TTSStreamChunk]: ...
+
+
+class TTSOutputAudioFrame(BaseModel):
+    """Resolved PCM payload for a TTS audio_ref (transport layer only)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: bytes = Field(max_length=65_536)
+    sample_rate_hz: int = Field(default=16_000, ge=8_000, le=48_000)
+    channels: int = Field(default=1, ge=1, le=2)
+    duration_ms: int = Field(ge=0)
+
+
+class TTSOutputAudioResolver(Protocol):
+    """Optional port for resolving TTS event audio_ref values to playable PCM."""
+
+    def resolve_output_audio(self, audio_ref: str) -> TTSOutputAudioFrame | None: ...

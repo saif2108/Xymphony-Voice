@@ -76,6 +76,21 @@ class TransportAudioInputEvent(BaseModel):
     room_name: str = Field(min_length=1, max_length=256)
 
 
+class TransportAudioOutputFrame(BaseModel):
+    """Provider-neutral outgoing assistant audio for transport publication (Step 8)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    room_name: str = Field(min_length=1, max_length=256)
+    data: bytes = Field(max_length=65_536)
+    sample_rate_hz: int = Field(default=16_000, ge=8_000, le=48_000)
+    channels: int = Field(default=1, ge=1, le=2)
+    duration_ms: int = Field(ge=0)
+    chunk_index: int = Field(default=0, ge=0)
+    is_final: bool = False
+    turn_id: str | None = Field(default=None, max_length=36)
+
+
 ParticipantEventHandler = Callable[[TransportParticipantEvent], Awaitable[None] | None]
 ConnectionStateHandler = Callable[[TransportConnectionState], Awaitable[None] | None]
 TransportErrorHandler = Callable[[TransportErrorEvent], Awaitable[None] | None]
@@ -104,3 +119,5 @@ class MediaTransport(Protocol):
     def on_audio_frame(self, handler: AudioFrameHandler) -> None: ...
 
     def on_audio_input(self, handler: AudioInputHandler) -> None: ...
+
+    async def publish_audio_output(self, frame: TransportAudioOutputFrame) -> None: ...
