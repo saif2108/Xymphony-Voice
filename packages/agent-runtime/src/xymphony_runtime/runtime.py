@@ -5,17 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from xymphony_contracts import Event
-from xymphony_contracts.enums import EventType, SessionStatus
+from xymphony_contracts.enums import EventType, MessageRole, SessionEndReason, SessionStatus
 from xymphony_contracts.events import TextRange, TranscriptFramePayload
 from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRequest, LLMRole
+from xymphony_contracts.persistence import ConversationRepository, SessionRepository
 from xymphony_contracts.provider import ProviderError
 from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
 from xymphony_contracts.tts import TTSProvider, TTSRequest
 from xymphony_runtime.cancellation import EventCancellationToken
 from xymphony_runtime.context import RuntimeContext
+from xymphony_runtime.conversation import build_text_message, committed_messages_to_llm
 from xymphony_runtime.dispatch import (
     agent_interrupted_event,
     error_event,
@@ -60,9 +63,13 @@ class AgentRuntime:
         stt_config: STTRuntimeConfig | None = None,
         tts_provider: TTSProvider | None = None,
         tts_config: TTSRuntimeConfig | None = None,
+        session_repository: SessionRepository | None = None,
+        conversation_repository: ConversationRepository | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
+        self._session_repository = session_repository
+        self._conversation_repository = conversation_repository
         self._llm_provider = llm_provider
         self._llm_config = llm_config
         self._stt_provider = stt_provider
@@ -123,6 +130,7 @@ class AgentRuntime:
             return
         self._running = True
         self._context.session_status = SessionStatus.ACTIVE
+        self._sync_session_status(SessionStatus.ACTIVE)
         self.admit_event(session_started_event(self._context))
         logger.info("runtime_started", extra={"session_id": str(self._context.session_id)})
 
@@ -134,6 +142,11 @@ class AgentRuntime:
         await self._cancel_active_tasks()
         self.admit_event(session_ended_event(self._context, reason=reason))
         self._context.session_status = SessionStatus.TERMINATED
+        self._sync_session_status(
+            SessionStatus.TERMINATED,
+            ended_at=datetime.now(tz=UTC),
+            end_reason=self._map_stop_reason(reason),
+        )
         self._running = False
         self._current_turn_id = None
         logger.info("runtime_stopped", extra={"session_id": str(self._context.session_id)})
@@ -214,6 +227,7 @@ class AgentRuntime:
                 await self._run_tts_stream(turn, assistant_text, cancel_token)
             if turn.state.is_terminal:
                 return
+            self._persist_turn_exchange(turn, user_text, assistant_text)
             await self._complete_turn(turn)
         finally:
             self._llm_cancel_tokens.pop(turn.id, None)
@@ -419,10 +433,11 @@ class AgentRuntime:
         if self._llm_provider is None or self._llm_config is None:
             return None
 
+        history = self._conversation_llm_history()
         request = LLMRequest(
             provider_key=self._llm_config.provider_key,
             model=self._llm_config.model,
-            messages=(LLMMessage(role=LLMRole.USER, content=text),),
+            messages=(*history, LLMMessage(role=LLMRole.USER, content=text)),
             system=self._llm_config.system_instructions,
             params=self._llm_config.params,
         )
@@ -623,3 +638,79 @@ class AgentRuntime:
             if isinstance(payload, TranscriptFramePayload) and payload.is_final:
                 final_text = payload.text
         return final_text
+
+    def _conversation_llm_history(self) -> tuple[LLMMessage, ...]:
+        if self._conversation_repository is None:
+            return ()
+        messages = self._conversation_repository.list_messages(
+            self._context.session_id,
+            organization_id=self._context.organization_id,
+        )
+        return committed_messages_to_llm(messages)
+
+    def _persist_turn_exchange(
+        self,
+        turn: RuntimeTurn,
+        user_text: str,
+        assistant_text: str,
+    ) -> None:
+        if self._conversation_repository is None:
+            return
+        if self._context.is_turn_cancelled(turn.id):
+            return
+        user_message = build_text_message(
+            session_id=self._context.session_id,
+            turn_id=turn.id,
+            organization_id=self._context.organization_id,
+            role=MessageRole.USER,
+            text=user_text,
+        )
+        assistant_message = build_text_message(
+            session_id=self._context.session_id,
+            turn_id=turn.id,
+            organization_id=self._context.organization_id,
+            role=MessageRole.ASSISTANT,
+            text=assistant_text,
+        )
+        self._conversation_repository.append_message(user_message)
+        self._conversation_repository.append_message(assistant_message)
+        logger.info(
+            "conversation_turn_persisted",
+            extra={
+                "session_id": str(self._context.session_id),
+                "turn_id": str(turn.id),
+            },
+        )
+
+    def _sync_session_status(
+        self,
+        status: SessionStatus,
+        *,
+        ended_at: datetime | None = None,
+        end_reason: SessionEndReason | None = None,
+    ) -> None:
+        if self._session_repository is None:
+            return
+        session = self._session_repository.get_session(
+            self._context.session_id,
+            organization_id=self._context.organization_id,
+            project_id=self._context.project_id,
+        )
+        if session is None:
+            return
+        updates: dict[str, object] = {"status": status}
+        if ended_at is not None:
+            updates["ended_at"] = ended_at
+        if end_reason is not None:
+            updates["end_reason"] = end_reason
+        self._session_repository.update_session(session.model_copy(update=updates))
+
+    @staticmethod
+    def _map_stop_reason(reason: str) -> SessionEndReason:
+        mapping = {
+            "user_stop": SessionEndReason.USER_STOP,
+            "worker_draining": SessionEndReason.WORKER_DRAINING,
+            "disconnect": SessionEndReason.DISCONNECT,
+            "error": SessionEndReason.ERROR,
+        }
+        return mapping.get(reason, SessionEndReason.ERROR)

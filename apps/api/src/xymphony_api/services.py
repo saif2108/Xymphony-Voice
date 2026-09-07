@@ -7,16 +7,35 @@ from sqlalchemy.orm import Session
 
 from xymphony_api.errors import ConflictError, NotFoundError
 from xymphony_api.logging import get_logger
-from xymphony_api.mapping import agent_to_contract, version_to_contract
-from xymphony_api.models import AgentRow, AgentVersionRow, ProjectRow
-from xymphony_api.repositories import AgentRepository, AgentVersionRepository, TenantRepository
+from xymphony_api.mapping import (
+    agent_to_contract,
+    message_to_contract,
+    session_to_contract,
+    version_to_contract,
+)
+from xymphony_api.models import AgentRow, AgentVersionRow, ProjectRow, SessionRow
+from xymphony_api.repositories import (
+    AgentRepository,
+    AgentVersionRepository,
+    ConversationRepository,
+    SessionRepository,
+    TenantRepository,
+)
 from xymphony_api.schemas import (
     AgentCreateRequest,
     AgentUpdateRequest,
     AgentVersionCreateRequest,
     AgentVersionUpdateRequest,
+    SessionCreateRequest,
 )
-from xymphony_contracts import Agent, AgentVersion, AgentVersionStatus
+from xymphony_contracts import (
+    Agent,
+    AgentVersion,
+    AgentVersionStatus,
+    Message,
+    SessionStatus,
+)
+from xymphony_contracts.session import Session as SessionContract
 
 logger = get_logger(__name__)
 
@@ -246,3 +265,119 @@ class AgentService:
         row.published_at = datetime.now(tz=UTC)
         self._session.flush()
         return version_to_contract(row)
+
+
+class SessionService:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self._tenants = TenantRepository(session)
+        self._agents = AgentRepository(session)
+        self._versions = AgentVersionRepository(session)
+        self._sessions = SessionRepository(session)
+        self._conversation = ConversationRepository(session)
+
+    def require_project(self, project_id: UUID) -> ProjectRow:
+        project = self._tenants.get_project(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        return project
+
+    def create_session(self, project_id: UUID, body: SessionCreateRequest) -> SessionContract:
+        project = self.require_project(project_id)
+        agent = self._agents.get_in_project(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            agent_id=body.agent_id,
+        )
+        if agent is None:
+            raise NotFoundError("Agent not found")
+
+        version_row: AgentVersionRow | None
+        if body.agent_version_id is not None:
+            version_row = self._versions.get_for_agent(
+                agent_id=agent.id,
+                organization_id=project.organization_id,
+                project_id=project.id,
+                version_id=body.agent_version_id,
+            )
+            if version_row is None:
+                raise NotFoundError("Agent version not found")
+        else:
+            version_row = self._versions.get_latest_published_for_agent(
+                agent_id=agent.id,
+                organization_id=project.organization_id,
+                project_id=project.id,
+            )
+            if version_row is None:
+                raise ConflictError(
+                    "no_published_version",
+                    "Agent has no published version; publish a version or specify agent_version_id",
+                )
+
+        now = datetime.now(tz=UTC)
+        row = SessionRow(
+            id=uuid4(),
+            organization_id=project.organization_id,
+            project_id=project.id,
+            agent_id=agent.id,
+            agent_version_id=version_row.id,
+            deployment_id=None,
+            status=SessionStatus.INITIALIZING.value,
+            channel=body.channel.value,
+            livekit_room=body.livekit_room,
+            config_hash=version_row.config_hash,
+            started_at=now,
+            updated_at=now,
+        )
+        self._sessions.create(row)
+        logger.info(
+            "session_created",
+            extra={
+                "session_id": str(row.id),
+                "agent_id": str(agent.id),
+                "agent_version_id": str(version_row.id),
+            },
+        )
+        return session_to_contract(row)
+
+    def get_session(self, project_id: UUID, session_id: UUID) -> SessionContract:
+        project = self.require_project(project_id)
+        row = self._sessions.get(
+            session_id,
+            organization_id=project.organization_id,
+            project_id=project.id,
+        )
+        if row is None:
+            raise NotFoundError("Session not found")
+        return session_to_contract(row)
+
+    def update_session_status(
+        self, project_id: UUID, session_id: UUID, status: SessionStatus
+    ) -> SessionContract:
+        project = self.require_project(project_id)
+        row = self._sessions.get(
+            session_id,
+            organization_id=project.organization_id,
+            project_id=project.id,
+        )
+        if row is None:
+            raise NotFoundError("Session not found")
+        row.status = status.value
+        row.updated_at = datetime.now(tz=UTC)
+        self._sessions.update(row)
+        return session_to_contract(row)
+
+    def list_messages(self, project_id: UUID, session_id: UUID) -> list[Message]:
+        project = self.require_project(project_id)
+        row = self._sessions.get(
+            session_id,
+            organization_id=project.organization_id,
+            project_id=project.id,
+        )
+        if row is None:
+            raise NotFoundError("Session not found")
+        rows = self._conversation.list_for_session(
+            session_id,
+            organization_id=project.organization_id,
+        )
+        return [message_to_contract(item) for item in rows]

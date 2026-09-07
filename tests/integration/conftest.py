@@ -81,7 +81,12 @@ def test_settings() -> Settings:
 def db_session(test_engine: Engine) -> Generator[Session, None, None]:
     factory = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
     session = factory()
-    session.execute(text("TRUNCATE agent_versions, agents, projects, organizations CASCADE"))
+    session.execute(
+        text(
+            "TRUNCATE conversation_messages, sessions, agent_versions, "
+            "agents, projects, organizations CASCADE"
+        )
+    )
     session.commit()
     try:
         yield session

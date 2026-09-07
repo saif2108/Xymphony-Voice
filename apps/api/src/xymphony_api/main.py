@@ -11,6 +11,7 @@ from xymphony_api.routes.agents import router as agents_router
 from xymphony_api.routes.dev_livekit import router as dev_livekit_router
 from xymphony_api.routes.dev_pages import router as dev_pages_router
 from xymphony_api.routes.health import router as health_router
+from xymphony_api.routes.sessions import router as sessions_router
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(agents_router)
+    app.include_router(sessions_router)
     app.include_router(dev_livekit_router)
     app.include_router(dev_pages_router)
     return app

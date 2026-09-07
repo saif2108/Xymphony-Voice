@@ -10,7 +10,15 @@ from xymphony_api.models import AgentRow, AgentVersionRow, OrganizationRow, Proj
 
 def test_expected_tables_exist(test_engine: Engine) -> None:
     names = set(inspect(test_engine).get_table_names())
-    assert {"organizations", "projects", "agents", "agent_versions"}.issubset(names)
+    expected = {
+        "organizations",
+        "projects",
+        "agents",
+        "agent_versions",
+        "sessions",
+        "conversation_messages",
+    }
+    assert expected.issubset(names)
 
 
 def test_unique_agent_version_n(db_session: Session) -> None:

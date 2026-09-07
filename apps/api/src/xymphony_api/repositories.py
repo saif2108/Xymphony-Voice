@@ -5,7 +5,14 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from xymphony_api.models import AgentRow, AgentVersionRow, OrganizationRow, ProjectRow
+from xymphony_api.models import (
+    AgentRow,
+    AgentVersionRow,
+    ConversationMessageRow,
+    OrganizationRow,
+    ProjectRow,
+    SessionRow,
+)
 
 
 class TenantRepository:
@@ -124,3 +131,84 @@ class AgentVersionRepository:
         self._session.add(row)
         self._session.flush()
         return row
+
+    def get_latest_published_for_agent(
+        self,
+        *,
+        agent_id: UUID,
+        organization_id: UUID,
+        project_id: UUID,
+    ) -> AgentVersionRow | None:
+        stmt = (
+            select(AgentVersionRow)
+            .where(
+                AgentVersionRow.agent_id == agent_id,
+                AgentVersionRow.organization_id == organization_id,
+                AgentVersionRow.project_id == project_id,
+                AgentVersionRow.status == "published",
+            )
+            .order_by(AgentVersionRow.version_n.desc())
+            .limit(1)
+        )
+        return self._session.scalar(stmt)
+
+
+class SessionRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, row: SessionRow) -> SessionRow:
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(
+        self,
+        session_id: UUID,
+        *,
+        organization_id: UUID | None = None,
+        project_id: UUID | None = None,
+    ) -> SessionRow | None:
+        stmt = select(SessionRow).where(SessionRow.id == session_id)
+        if organization_id is not None:
+            stmt = stmt.where(SessionRow.organization_id == organization_id)
+        if project_id is not None:
+            stmt = stmt.where(SessionRow.project_id == project_id)
+        return self._session.scalar(stmt)
+
+    def update(self, row: SessionRow) -> SessionRow:
+        self._session.flush()
+        return row
+
+
+class ConversationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def append(self, row: ConversationMessageRow) -> ConversationMessageRow:
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def list_for_session(
+        self,
+        session_id: UUID,
+        *,
+        organization_id: UUID | None = None,
+    ) -> list[ConversationMessageRow]:
+        stmt = (
+            select(ConversationMessageRow)
+            .where(ConversationMessageRow.session_id == session_id)
+            .order_by(ConversationMessageRow.sequence.asc())
+        )
+        if organization_id is not None:
+            stmt = stmt.where(ConversationMessageRow.organization_id == organization_id)
+        return list(self._session.scalars(stmt).all())
+
+    def next_sequence(self, session_id: UUID) -> int:
+        current = self._session.scalar(
+            select(func.max(ConversationMessageRow.sequence)).where(
+                ConversationMessageRow.session_id == session_id
+            )
+        )
+        return int(current or 0) + 1

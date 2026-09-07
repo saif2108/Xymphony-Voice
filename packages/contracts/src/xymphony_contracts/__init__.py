@@ -48,6 +48,11 @@ from xymphony_contracts.llm import (
     ProviderError,
     ProviderErrorCode,
 )
+from xymphony_contracts.persistence import (
+    ConversationRepository,
+    CreateSessionRequest,
+    SessionRepository,
+)
 from xymphony_contracts.providers import LLMBinding, STTBinding, TTSBinding
 from xymphony_contracts.session import Message, Session, Turn
 from xymphony_contracts.stt import (
@@ -79,6 +84,8 @@ __all__ = [
     "Channel",
     "ContentPart",
     "ContentPartType",
+    "ConversationRepository",
+    "CreateSessionRequest",
     "ErrorPayload",
     "Event",
     "EventSource",
@@ -110,6 +117,7 @@ __all__ = [
     "Session",
     "SessionEndReason",
     "SessionEndedPayload",
+    "SessionRepository",
     "SessionStartedPayload",
     "SessionStatus",
     "TTSBinding",

@@ -4,7 +4,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from xymphony_contracts import Agent, AgentStatus, AgentVersion, LLMBinding, STTBinding, TTSBinding
+from xymphony_contracts import (
+    Agent,
+    AgentStatus,
+    AgentVersion,
+    Channel,
+    LLMBinding,
+    Message,
+    STTBinding,
+    TTSBinding,
+)
 
 
 class AgentCreateRequest(BaseModel):
@@ -55,6 +64,19 @@ class AgentVersionUpdateRequest(BaseModel):
 class AgentVersionListResponse(BaseModel):
     items: list[AgentVersion]
     next_cursor: str | None = None
+
+
+class SessionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    agent_version_id: UUID | None = None
+    channel: Channel = Channel.PLAYGROUND
+    livekit_room: str | None = Field(default=None, max_length=256)
+
+
+class MessageListResponse(BaseModel):
+    items: list[Message]
 
 
 class HealthResponse(BaseModel):

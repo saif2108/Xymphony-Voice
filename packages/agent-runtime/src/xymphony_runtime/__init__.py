@@ -13,6 +13,7 @@ from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.lifecycle import RuntimeSessionLifecycleState
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.observations import LifecycleTransition, RuntimeObservation
+from xymphony_runtime.persistence import InMemoryConversationRepository, InMemorySessionRepository
 from xymphony_runtime.runtime import AgentRuntime
 from xymphony_runtime.session import MinimalTransportSession
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk, StreamChunkKind
@@ -24,6 +25,8 @@ from xymphony_runtime.worker import RuntimeWorkerSession
 __all__ = [
     "AgentRuntime",
     "IncrementalOutputSink",
+    "InMemoryConversationRepository",
+    "InMemorySessionRepository",
     "LLMRuntimeConfig",
     "InvalidRuntimeInputError",
     "InvalidStateTransitionError",
