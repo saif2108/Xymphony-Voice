@@ -26,6 +26,8 @@ class RuntimeInput:
     error_message: str | None = None
     audio_data: bytes | None = None
     audio_duration_ms: int | None = None
+    audio_sample_rate_hz: int | None = None
+    audio_channels: int | None = None
 
     @classmethod
     def text_input(cls, value: str) -> RuntimeInput:
@@ -40,11 +42,20 @@ class RuntimeInput:
         return cls(kind=RuntimeInputKind.USER_SPEECH_ENDED)
 
     @classmethod
-    def audio_frame(cls, data: bytes, *, duration_ms: int) -> RuntimeInput:
+    def audio_frame(
+        cls,
+        data: bytes,
+        *,
+        duration_ms: int,
+        sample_rate_hz: int = 16_000,
+        channels: int = 1,
+    ) -> RuntimeInput:
         return cls(
             kind=RuntimeInputKind.AUDIO_FRAME,
             audio_data=data,
             audio_duration_ms=duration_ms,
+            audio_sample_rate_hz=sample_rate_hz,
+            audio_channels=channels,
         )
 
     @classmethod

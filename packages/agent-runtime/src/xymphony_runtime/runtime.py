@@ -8,8 +8,8 @@ from collections.abc import AsyncIterator, Callable
 from uuid import UUID, uuid4
 
 from xymphony_contracts import Event
-from xymphony_contracts.enums import SessionStatus
-from xymphony_contracts.events import TextRange
+from xymphony_contracts.enums import EventType, SessionStatus
+from xymphony_contracts.events import TextRange, TranscriptFramePayload
 from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRequest, LLMRole
 from xymphony_contracts.provider import ProviderError
 from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
@@ -107,6 +107,10 @@ class AgentRuntime:
     def turns(self) -> tuple[RuntimeTurn, ...]:
         return tuple(self._turns.values())
 
+    @property
+    def speech_input_enabled(self) -> bool:
+        return self._stt_provider is not None and self._stt_config is not None
+
     def on_event(self, listener: EventListener) -> None:
         self._listeners.append(listener)
 
@@ -192,15 +196,14 @@ class AgentRuntime:
             await self._complete_turn(turn)
             return
 
+        await self._run_assistant_pipeline(turn, runtime_input.text.strip())
+
+    async def _run_assistant_pipeline(self, turn: RuntimeTurn, user_text: str) -> None:
         cancel_token = EventCancellationToken()
         self._llm_cancel_tokens[turn.id] = cancel_token
         self._tts_cancel_tokens[turn.id] = cancel_token
         try:
-            assistant_text = await self._run_llm_stream(
-                turn,
-                runtime_input.text.strip(),
-                cancel_token,
-            )
+            assistant_text = await self._run_llm_stream(turn, user_text, cancel_token)
             if assistant_text is None or turn.state.is_terminal:
                 return
             if self._tts_provider is not None and self._tts_config is not None:
@@ -232,6 +235,7 @@ class AgentRuntime:
         if turn is None or turn.state.is_terminal:
             raise InvalidRuntimeInputError("user speech ended without an active turn")
         self.admit_event(user_speech_ended_event(self._context, turn_id=turn.id))
+        final_transcript: str | None = None
         if self._stt_provider is None or self._stt_config is None:
             await self._complete_turn(turn)
             return
@@ -245,6 +249,28 @@ class AgentRuntime:
         self._cleanup_stt_turn(turn.id)
         if turn.state.is_terminal:
             return
+
+        final_transcript = self._final_transcript_for_turn(turn.id)
+        if final_transcript and final_transcript.strip():
+            logger.info(
+                "speech_transcript_produced",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn.id),
+                    "transcript_length": len(final_transcript.strip()),
+                },
+            )
+            if self._llm_provider is not None and self._llm_config is not None:
+                logger.info(
+                    "speech_transcript_forwarded",
+                    extra={
+                        "session_id": str(self._context.session_id),
+                        "turn_id": str(turn.id),
+                    },
+                )
+                await self._run_assistant_pipeline(turn, final_transcript.strip())
+                return
+
         await self._complete_turn(turn)
 
     async def _handle_audio_frame(self, runtime_input: RuntimeInput) -> None:
@@ -262,6 +288,8 @@ class AgentRuntime:
             STTAudioFrame(
                 data=runtime_input.audio_data,
                 duration_ms=runtime_input.audio_duration_ms,
+                sample_rate_hz=runtime_input.audio_sample_rate_hz or 16_000,
+                channels=runtime_input.audio_channels or 1,
             )
         )
 
@@ -581,3 +609,13 @@ class AgentRuntime:
                     "provider_key": exc.provider_key,
                 },
             )
+
+    def _final_transcript_for_turn(self, turn_id: UUID) -> str | None:
+        final_text: str | None = None
+        for event in self._admitted_events:
+            if event.turn_id != turn_id or event.type != EventType.TRANSCRIPT_FRAME:
+                continue
+            payload = event.payload
+            if isinstance(payload, TranscriptFramePayload) and payload.is_final:
+                final_text = payload.text
+        return final_text

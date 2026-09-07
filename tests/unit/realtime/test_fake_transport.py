@@ -53,6 +53,22 @@ async def test_fake_transport_participant_events(config: MediaTransportConfig) -
 
 
 @pytest.mark.asyncio
+async def test_fake_transport_audio_handlers(config: MediaTransportConfig) -> None:
+    transport = FakeMediaTransport()
+    frames: list[int] = []
+    inputs: list[str] = []
+    transport.on_audio_frame(lambda frame: frames.append(len(frame.data)))
+    transport.on_audio_input(lambda event: inputs.append(event.kind.value))
+
+    await transport.connect(config)
+    await transport.simulate_speech_utterance("browser-user", b"\x00\x01", duration_ms=10)
+    await transport.disconnect()
+
+    assert frames == [2]
+    assert inputs == ["started", "ended"]
+
+
+@pytest.mark.asyncio
 async def test_fake_transport_error_sets_failed(config: MediaTransportConfig) -> None:
     transport = FakeMediaTransport()
     errors: list[str] = []

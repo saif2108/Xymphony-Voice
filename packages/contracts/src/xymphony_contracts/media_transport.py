@@ -48,9 +48,39 @@ class TransportErrorEvent(BaseModel):
     retryable: bool = False
 
 
+class TransportAudioInputKind(StrEnum):
+    STARTED = "started"
+    ENDED = "ended"
+
+
+class TransportAudioFrame(BaseModel):
+    """Provider-neutral incoming audio from a remote participant."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    participant_identity: str = Field(min_length=1, max_length=256)
+    room_name: str = Field(min_length=1, max_length=256)
+    data: bytes = Field(max_length=65_536)
+    sample_rate_hz: int = Field(default=16_000, ge=8_000, le=48_000)
+    channels: int = Field(default=1, ge=1, le=2)
+    duration_ms: int = Field(ge=0)
+
+
+class TransportAudioInputEvent(BaseModel):
+    """Minimal speech/audio boundary signal without VAD (Step 7)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: TransportAudioInputKind
+    participant_identity: str = Field(min_length=1, max_length=256)
+    room_name: str = Field(min_length=1, max_length=256)
+
+
 ParticipantEventHandler = Callable[[TransportParticipantEvent], Awaitable[None] | None]
 ConnectionStateHandler = Callable[[TransportConnectionState], Awaitable[None] | None]
 TransportErrorHandler = Callable[[TransportErrorEvent], Awaitable[None] | None]
+AudioFrameHandler = Callable[[TransportAudioFrame], Awaitable[None] | None]
+AudioInputHandler = Callable[[TransportAudioInputEvent], Awaitable[None] | None]
 
 
 class MediaTransport(Protocol):
@@ -70,3 +100,7 @@ class MediaTransport(Protocol):
     def on_connection_state(self, handler: ConnectionStateHandler) -> None: ...
 
     def on_error(self, handler: TransportErrorHandler) -> None: ...
+
+    def on_audio_frame(self, handler: AudioFrameHandler) -> None: ...
+
+    def on_audio_input(self, handler: AudioInputHandler) -> None: ...

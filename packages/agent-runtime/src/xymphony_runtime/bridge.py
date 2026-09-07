@@ -11,6 +11,9 @@ from xymphony_contracts.enums import EventType
 from xymphony_contracts.media_transport import (
     MediaTransport,
     MediaTransportConfig,
+    TransportAudioFrame,
+    TransportAudioInputEvent,
+    TransportAudioInputKind,
     TransportConnectionState,
     TransportErrorEvent,
     TransportParticipantEvent,
@@ -153,6 +156,8 @@ class RuntimeMediaBridge:
         self._transport.on_connection_state(self._on_connection_state)
         self._transport.on_participant_event(self._on_participant_event)
         self._transport.on_error(self._on_transport_error)
+        self._transport.on_audio_input(self._on_transport_audio_input)
+        self._transport.on_audio_frame(self._on_transport_audio_frame)
 
     def _register_runtime_listener(self) -> None:
         if self._runtime_listener_registered:
@@ -189,6 +194,80 @@ class RuntimeMediaBridge:
                 "kind": event.kind.value,
                 "identity": event.identity,
             },
+        )
+
+    async def _on_transport_audio_input(self, event: TransportAudioInputEvent) -> None:
+        if not self._voice_input_enabled():
+            return
+        if event.kind == TransportAudioInputKind.STARTED:
+            current_turn = self._runtime.current_turn
+            if current_turn is not None and not current_turn.state.is_terminal:
+                logger.info(
+                    "bridge_audio_input_started_ignored",
+                    extra={
+                        "session_id": str(self._runtime.context.session_id),
+                        "participant": event.participant_identity,
+                    },
+                )
+                return
+            logger.info(
+                "bridge_audio_input_started",
+                extra={
+                    "session_id": str(self._runtime.context.session_id),
+                    "participant": event.participant_identity,
+                },
+            )
+            await self._runtime.handle_input(RuntimeInput.user_speech_started())
+            return
+
+        turn = self._runtime.current_turn
+        if turn is None or turn.state.is_terminal:
+            logger.info(
+                "bridge_audio_input_ended_ignored",
+                extra={
+                    "session_id": str(self._runtime.context.session_id),
+                    "participant": event.participant_identity,
+                },
+            )
+            return
+        logger.info(
+            "bridge_audio_input_ended",
+            extra={
+                "session_id": str(self._runtime.context.session_id),
+                "participant": event.participant_identity,
+            },
+        )
+        await self._runtime.handle_input(RuntimeInput.user_speech_ended())
+
+    async def _on_transport_audio_frame(self, frame: TransportAudioFrame) -> None:
+        if not self._voice_input_enabled():
+            return
+        turn = self._runtime.current_turn
+        if turn is None or turn.state.is_terminal:
+            return
+        logger.info(
+            "bridge_audio_frame_received",
+            extra={
+                "session_id": str(self._runtime.context.session_id),
+                "participant": frame.participant_identity,
+                "duration_ms": frame.duration_ms,
+                "sample_rate_hz": frame.sample_rate_hz,
+            },
+        )
+        await self._runtime.handle_input(
+            RuntimeInput.audio_frame(
+                frame.data,
+                duration_ms=frame.duration_ms,
+                sample_rate_hz=frame.sample_rate_hz,
+                channels=frame.channels,
+            )
+        )
+
+    def _voice_input_enabled(self) -> bool:
+        return (
+            self._runtime.running
+            and not self._runtime.context.shutdown_requested
+            and self._runtime.speech_input_enabled
         )
 
     async def _on_transport_error(self, event: TransportErrorEvent) -> None:

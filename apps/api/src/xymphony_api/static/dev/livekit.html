@@ -18,6 +18,7 @@
     <p class="note">
       Xymphony uses LiveKit as <strong>media transport only</strong>, not as the agent runtime.
       This page verifies browser ↔ LiveKit room connectivity via the control-plane dev token endpoint.
+      After connecting, the browser publishes microphone audio for manual worker/transport smoke tests.
     </p>
     <label>Room name <input id="room" value="xymphony-dev" /></label>
     <label>Participant identity <input id="identity" value="browser-user" /></label>
@@ -59,6 +60,8 @@
           room.on(LivekitClient.RoomEvent.Disconnected, () => log("Disconnected"));
           await room.connect(token.url, token.token);
           log("Connected");
+          await room.localParticipant.setMicrophoneEnabled(true);
+          log("Microphone enabled (audio published to room)");
           disconnectBtn.disabled = false;
         } catch (err) {
           log(String(err));
