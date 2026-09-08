@@ -11,14 +11,15 @@ from uuid import UUID, uuid4
 from xymphony_contracts import Event
 from xymphony_contracts.enums import EventType, MessageRole, SessionEndReason, SessionStatus
 from xymphony_contracts.events import TextRange, TranscriptFramePayload
-from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRequest, LLMRole
+from xymphony_contracts.llm import LLMProvider
 from xymphony_contracts.persistence import ConversationRepository, SessionRepository
 from xymphony_contracts.provider import ProviderError
+from xymphony_contracts.session import Message
 from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
 from xymphony_contracts.tts import TTSProvider, TTSRequest
 from xymphony_runtime.cancellation import EventCancellationToken
 from xymphony_runtime.context import RuntimeContext
-from xymphony_runtime.conversation import build_text_message, committed_messages_to_llm
+from xymphony_runtime.conversation import build_text_message
 from xymphony_runtime.dispatch import (
     agent_interrupted_event,
     error_event,
@@ -39,6 +40,7 @@ from xymphony_runtime.errors import (
 )
 from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.llm_config import LLMRuntimeConfig
+from xymphony_runtime.llm_context import LLMContextAssembler
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk
 from xymphony_runtime.stt_config import STTRuntimeConfig
 from xymphony_runtime.tts_config import TTSRuntimeConfig
@@ -87,6 +89,7 @@ class AgentRuntime:
         self._stt_audio_queues: dict[UUID, asyncio.Queue[STTAudioFrame | None]] = {}
         self._stt_tasks: dict[UUID, asyncio.Task[None]] = {}
         self._tts_cancel_tokens: dict[UUID, EventCancellationToken] = {}
+        self._llm_context_assembler = LLMContextAssembler()
 
     @property
     def context(self) -> RuntimeContext:
@@ -433,13 +436,11 @@ class AgentRuntime:
         if self._llm_provider is None or self._llm_config is None:
             return None
 
-        history = self._conversation_llm_history()
-        request = LLMRequest(
-            provider_key=self._llm_config.provider_key,
-            model=self._llm_config.model,
-            messages=(*history, LLMMessage(role=LLMRole.USER, content=text)),
-            system=self._llm_config.system_instructions,
-            params=self._llm_config.params,
+        history = self._conversation_messages()
+        request = self._llm_context_assembler.assemble(
+            history=history,
+            current_user_text=text,
+            config=self._llm_config,
         )
         full_text_parts: list[str] = []
         finish_reason = "stop"
@@ -671,14 +672,13 @@ class AgentRuntime:
                 final_text = payload.text
         return final_text
 
-    def _conversation_llm_history(self) -> tuple[LLMMessage, ...]:
+    def _conversation_messages(self) -> tuple[Message, ...]:
         if self._conversation_repository is None:
             return ()
-        messages = self._conversation_repository.list_messages(
+        return self._conversation_repository.list_messages(
             self._context.session_id,
             organization_id=self._context.organization_id,
         )
-        return committed_messages_to_llm(messages)
 
     def _persist_turn_exchange(
         self,

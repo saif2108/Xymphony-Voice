@@ -12,6 +12,7 @@ from xymphony_runtime.errors import (
 from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.lifecycle import RuntimeSessionLifecycleState
 from xymphony_runtime.llm_config import LLMRuntimeConfig
+from xymphony_runtime.llm_context import LLMContextAssembler
 from xymphony_runtime.observations import LifecycleTransition, RuntimeObservation
 from xymphony_runtime.persistence import InMemoryConversationRepository, InMemorySessionRepository
 from xymphony_runtime.runtime import AgentRuntime
@@ -28,6 +29,7 @@ __all__ = [
     "InMemoryConversationRepository",
     "InMemorySessionRepository",
     "LLMRuntimeConfig",
+    "LLMContextAssembler",
     "InvalidRuntimeInputError",
     "InvalidStateTransitionError",
     "LifecycleTransition",
