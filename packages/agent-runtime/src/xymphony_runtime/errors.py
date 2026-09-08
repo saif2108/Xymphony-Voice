@@ -21,3 +21,7 @@ class RuntimeNotRunningError(RuntimeError):
 
 class StaleTurnEventError(RuntimeError):
     """Event targets a cancelled turn and must not mutate state."""
+
+
+class ContextBudgetExceededError(RuntimeError):
+    """System instructions or current user input exceed the context budget."""

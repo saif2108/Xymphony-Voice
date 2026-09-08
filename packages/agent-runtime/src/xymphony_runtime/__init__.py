@@ -2,7 +2,9 @@
 
 from xymphony_runtime.bridge import RuntimeMediaBridge
 from xymphony_runtime.context import RuntimeContext
+from xymphony_runtime.context_budget import ContextBudgetPolicy
 from xymphony_runtime.errors import (
+    ContextBudgetExceededError,
     InvalidRuntimeInputError,
     InvalidStateTransitionError,
     RuntimeError,
@@ -19,12 +21,15 @@ from xymphony_runtime.runtime import AgentRuntime
 from xymphony_runtime.session import MinimalTransportSession
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk, StreamChunkKind
 from xymphony_runtime.stt_config import STTRuntimeConfig
+from xymphony_runtime.token_estimate import approximate_token_count
 from xymphony_runtime.tts_config import TTSRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn, RuntimeTurnLifecycleState
 from xymphony_runtime.worker import RuntimeWorkerSession
 
 __all__ = [
     "AgentRuntime",
+    "ContextBudgetExceededError",
+    "ContextBudgetPolicy",
     "IncrementalOutputSink",
     "InMemoryConversationRepository",
     "InMemorySessionRepository",
@@ -50,4 +55,5 @@ __all__ = [
     "StaleTurnEventError",
     "StreamChunkKind",
     "TTSRuntimeConfig",
+    "approximate_token_count",
 ]

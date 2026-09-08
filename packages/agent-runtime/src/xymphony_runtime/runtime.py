@@ -33,6 +33,7 @@ from xymphony_runtime.dispatch import (
     user_speech_started_event,
 )
 from xymphony_runtime.errors import (
+    ContextBudgetExceededError,
     InvalidRuntimeInputError,
     InvalidStateTransitionError,
     RuntimeNotRunningError,
@@ -437,11 +438,34 @@ class AgentRuntime:
             return None
 
         history = self._conversation_messages()
-        request = self._llm_context_assembler.assemble(
-            history=history,
-            current_user_text=text,
-            config=self._llm_config,
-        )
+        try:
+            request = self._llm_context_assembler.assemble(
+                history=history,
+                current_user_text=text,
+                config=self._llm_config,
+            )
+        except ContextBudgetExceededError as exc:
+            turn.fail(error_code="context_budget_exceeded")
+            self.admit_event(
+                error_event(
+                    self._context,
+                    code="context_budget_exceeded",
+                    message=str(exc),
+                    turn_id=turn.id,
+                    retryable=False,
+                )
+            )
+            if self._current_turn_id == turn.id:
+                self._current_turn_id = None
+            logger.info(
+                "context_budget_exceeded",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn.id),
+                    "error_message": str(exc),
+                },
+            )
+            return None
         full_text_parts: list[str] = []
         finish_reason = "stop"
         logger.info(

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from xymphony_contracts.llm import LLMMessage, LLMRequest, LLMRole
 from xymphony_contracts.session import Message
+from xymphony_runtime.context_budget import ContextBudgetPolicy
 from xymphony_runtime.conversation import committed_messages_to_llm
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 
@@ -13,9 +14,13 @@ from xymphony_runtime.llm_config import LLMRuntimeConfig
 class LLMContextAssembler:
     """Pure assembler: conversation history + current utterance → LLMRequest.
 
-    Does not access repositories, providers, or persistence. Does not truncate
-    or count tokens. Does not mutate the supplied history sequence.
+    Does not access repositories, providers, or persistence. Does not mutate
+    the supplied history sequence. When ``config.max_input_tokens`` is set,
+    applies :class:`ContextBudgetPolicy` before building the request.
     """
+
+    def __init__(self, budget_policy: ContextBudgetPolicy | None = None) -> None:
+        self._budget_policy = budget_policy or ContextBudgetPolicy()
 
     def assemble(
         self,
@@ -25,6 +30,13 @@ class LLMContextAssembler:
         config: LLMRuntimeConfig,
     ) -> LLMRequest:
         llm_history = committed_messages_to_llm(tuple(history))
+        if config.max_input_tokens is not None:
+            llm_history = self._budget_policy.select_history(
+                llm_history,
+                current_user_text=current_user_text,
+                system_instructions=config.system_instructions,
+                max_input_tokens=config.max_input_tokens,
+            )
         return LLMRequest(
             provider_key=config.provider_key,
             model=config.model,

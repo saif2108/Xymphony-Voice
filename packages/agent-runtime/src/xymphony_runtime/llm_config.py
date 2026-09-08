@@ -13,3 +13,5 @@ class LLMRuntimeConfig:
     model: str
     system_instructions: str = ""
     params: dict[str, JsonValue] = field(default_factory=dict)
+    # Approximate max input tokens for context budgeting. None disables budgeting.
+    max_input_tokens: int | None = None
