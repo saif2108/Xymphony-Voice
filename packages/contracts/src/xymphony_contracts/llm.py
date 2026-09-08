@@ -66,6 +66,9 @@ class LLMRequest(BaseModel):
     system: str = Field(default="", max_length=32_000)
     params: dict[str, JsonValue] = Field(default_factory=dict)
     tools: tuple[LLMToolDefinition, ...] = ()
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_output_tokens: int | None = Field(default=None, ge=1)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class LLMStreamChunk(BaseModel):

@@ -44,14 +44,42 @@ class OpenAILLMProvider:
         cancel: CancellationToken,
     ) -> AsyncIterator[LLMStreamChunk]:
         messages = _to_openai_messages(request)
-        temperature = request.params.get("temperature")
         kwargs: dict[str, Any] = {
             "model": request.model or self._model,
             "messages": messages,
             "stream": True,
         }
-        if isinstance(temperature, int | float):
-            kwargs["temperature"] = float(temperature)
+        temperature = request.temperature
+        if temperature is None:
+            raw_temp = request.params.get("temperature")
+            if isinstance(raw_temp, int | float) and not isinstance(raw_temp, bool):
+                temperature = float(raw_temp)
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+
+        top_p = request.top_p
+        if top_p is None:
+            raw_top_p = request.params.get("top_p")
+            if isinstance(raw_top_p, int | float) and not isinstance(raw_top_p, bool):
+                top_p = float(raw_top_p)
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+
+        max_output_tokens = request.max_output_tokens
+        if max_output_tokens is None:
+            raw_tokens = (
+                request.params.get("max_output_tokens")
+                or request.params.get("max_completion_tokens")
+                or request.params.get("max_tokens")
+            )
+            if (
+                isinstance(raw_tokens, int)
+                and not isinstance(raw_tokens, bool)
+                and raw_tokens >= 1
+            ):
+                max_output_tokens = raw_tokens
+        if max_output_tokens is not None:
+            kwargs["max_completion_tokens"] = max_output_tokens
 
         try:
             stream = await self._client.chat.completions.create(**kwargs)

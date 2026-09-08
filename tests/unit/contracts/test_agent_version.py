@@ -64,8 +64,8 @@ def test_invalid_config_hash_rejected() -> None:
     with pytest.raises(ValidationError):
         make_agent_version(config_hash="not-a-hash")
 
- 
- 
+
+
 def test_compiled_system_prompt_joins_personality_before_instructions() -> None:
     version = make_agent_version(
         instructions="Answer billing questions.",
@@ -75,18 +75,18 @@ def test_compiled_system_prompt_joins_personality_before_instructions() -> None:
         version.compiled_system_prompt()
         == "Friendly and concise.\n\nAnswer billing questions."
     )
- 
- 
+
+
 def test_compiled_system_prompt_omits_blank_personality() -> None:
     version = make_agent_version(instructions="Answer billing questions.", personality="")
     assert version.compiled_system_prompt() == "Answer billing questions."
- 
- 
+
+
 def test_compiled_system_prompt_treats_whitespace_personality_as_blank() -> None:
     version = make_agent_version(instructions="Answer billing questions.", personality="   \n  ")
     assert version.compiled_system_prompt() == "Answer billing questions."
- 
- 
+
+
 def test_compiled_system_prompt_strips_surrounding_whitespace() -> None:
     version = make_agent_version(
         instructions="  Answer billing questions.  ",

@@ -86,10 +86,10 @@ class AgentVersion(BaseModel):
             msg = "published_at is only valid when status is published"
             raise ValueError(msg)
         return self
-    
+
     def compiled_system_prompt(self) -> str:
          """Join snapshot fields into the LLM system prompt.
- 
+
          Per docs/runtime-design.md #13 ("Prompt compilation"): system =
          join(personality, instructions, goals, constraints, guardrails).
          Only ``personality`` and ``instructions`` exist on this P1 snapshot;
@@ -104,7 +104,7 @@ class AgentVersion(BaseModel):
          if not instructions:
              return personality
          return f"{personality}\n\n{instructions}"
-        
+
     def compute_config_hash(self) -> str:
         """SHA-256 of canonical config fields (no secrets, no timestamps)."""
         payload = {

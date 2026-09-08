@@ -284,6 +284,9 @@ class ConversationSummarizer:
             messages=(LLMMessage(role=LLMRole.USER, content=user_content),),
             system=_SUMMARY_SYSTEM_PROMPT_SHORT if short else _SUMMARY_SYSTEM_PROMPT,
             params=self._llm_config.params,
+            temperature=self._llm_config.temperature,
+            max_output_tokens=self._llm_config.max_output_tokens,
+            top_p=self._llm_config.top_p,
         )
         parts: list[str] = []
         async for chunk in self._llm_provider.stream(request, cancel=cancel):

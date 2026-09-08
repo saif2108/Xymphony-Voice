@@ -61,6 +61,59 @@ async def test_openai_stream_normalizes_chunks() -> None:
     assert chunks[-1].finish_reason == "stop"
 
 
+@pytest.mark.asyncio
+async def test_openai_stream_passes_generation_parameters() -> None:
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(
+        return_value=_FakeStream(
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(delta=SimpleNamespace(content="ok"), finish_reason="stop")
+                    ]
+                )
+            ]
+        )
+    )
+    provider = OpenAILLMProvider(model="gpt-4o-mini", api_key=_SECRET, client=client)
+    request = LLMRequest(
+        provider_key="openai",
+        model="gpt-4o-mini",
+        messages=(LLMMessage(role=LLMRole.USER, content="hi"),),
+        temperature=0.7,
+        top_p=0.9,
+        max_output_tokens=256,
+    )
+    _ = [chunk async for chunk in provider.stream(request, cancel=EventCancellationToken())]
+
+    assert client.chat.completions.create.call_count == 1
+    call_kwargs = client.chat.completions.create.call_args.kwargs
+    assert call_kwargs["temperature"] == 0.7
+    assert call_kwargs["top_p"] == 0.9
+    assert call_kwargs["max_completion_tokens"] == 256
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_omits_absent_generation_parameters() -> None:
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(
+        return_value=_FakeStream([])
+    )
+    provider = OpenAILLMProvider(model="gpt-4o-mini", api_key=_SECRET, client=client)
+    request = LLMRequest(
+        provider_key="openai",
+        model="gpt-4o-mini",
+        messages=(LLMMessage(role=LLMRole.USER, content="hi"),),
+    )
+    _ = [chunk async for chunk in provider.stream(request, cancel=EventCancellationToken())]
+
+    assert client.chat.completions.create.call_count == 1
+    call_kwargs = client.chat.completions.create.call_args.kwargs
+    assert "temperature" not in call_kwargs
+    assert "top_p" not in call_kwargs
+    assert "max_completion_tokens" not in call_kwargs
+
+
 def test_normalize_auth_error_does_not_leak_key() -> None:
     err = AuthenticationError(
         message=f"invalid key {_SECRET}",

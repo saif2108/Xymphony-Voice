@@ -28,6 +28,9 @@ from xymphony_runtime.conversation import message_text
 from xymphony_runtime_worker.bootstrap import (
     VoiceWorkerComponents,
     _llm_max_input_tokens,
+    _llm_max_output_tokens,
+    _llm_temperature,
+    _llm_top_p,
     build_voice_worker,
     runtime_configs_from_version,
     runtime_context_from_session,
@@ -163,6 +166,125 @@ def test_runtime_configs_populates_max_input_tokens() -> None:
 def test_runtime_configs_rejects_invalid_max_input_tokens() -> None:
     version = make_agent_version(llm=llm_binding(params={"max_input_tokens": -5}))
     with pytest.raises(ValueError, match="must be >= 1"):
+        runtime_configs_from_version(version)
+
+
+def test_llm_temperature_helper_valid_and_absent() -> None:
+    assert _llm_temperature({}) is None
+    assert _llm_temperature({"temperature": 0}) == 0.0
+    assert _llm_temperature({"temperature": 0.7}) == 0.7
+    assert _llm_temperature({"temperature": 2}) == 2.0
+    assert _llm_temperature({"temperature": 2.0}) == 2.0
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_llm_temperature_helper_rejects_bool(value: bool) -> None:
+    with pytest.raises(ValueError, match="must be a numeric value"):
+        _llm_temperature({"temperature": value})
+
+
+@pytest.mark.parametrize("value", [-0.1, 2.1, 100])
+def test_llm_temperature_helper_rejects_out_of_range(value: float) -> None:
+    with pytest.raises(ValueError, match="between 0.0 and 2.0"):
+        _llm_temperature({"temperature": value})
+
+
+@pytest.mark.parametrize("value", ["0.7", [0.7], {"a": 1}, None])
+def test_llm_temperature_helper_rejects_non_numeric(value: object) -> None:
+    with pytest.raises(ValueError, match="must be a numeric value"):
+        _llm_temperature({"temperature": value})  # type: ignore[dict-item]
+
+
+def test_llm_top_p_helper_valid_and_absent() -> None:
+    assert _llm_top_p({}) is None
+    assert _llm_top_p({"top_p": 0}) == 0.0
+    assert _llm_top_p({"top_p": 0.9}) == 0.9
+    assert _llm_top_p({"top_p": 1}) == 1.0
+    assert _llm_top_p({"top_p": 1.0}) == 1.0
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_llm_top_p_helper_rejects_bool(value: bool) -> None:
+    with pytest.raises(ValueError, match="must be a numeric value"):
+        _llm_top_p({"top_p": value})
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.1, 2.0])
+def test_llm_top_p_helper_rejects_out_of_range(value: float) -> None:
+    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+        _llm_top_p({"top_p": value})
+
+
+@pytest.mark.parametrize("value", ["0.9", [0.9], {"a": 1}, None])
+def test_llm_top_p_helper_rejects_non_numeric(value: object) -> None:
+    with pytest.raises(ValueError, match="must be a numeric value"):
+        _llm_top_p({"top_p": value})  # type: ignore[dict-item]
+
+
+def test_llm_max_output_tokens_helper_valid_and_aliases() -> None:
+    assert _llm_max_output_tokens({}) is None
+    assert _llm_max_output_tokens({"max_output_tokens": 100}) == 100
+    assert _llm_max_output_tokens({"max_completion_tokens": 200}) == 200
+    assert _llm_max_output_tokens({"max_tokens": 300}) == 300
+    assert _llm_max_output_tokens({"max_output_tokens": 100, "max_tokens": 100}) == 100
+
+
+def test_llm_max_output_tokens_helper_conflicting_aliases_rejected() -> None:
+    with pytest.raises(ValueError, match="conflicting max output tokens"):
+        _llm_max_output_tokens({"max_output_tokens": 100, "max_tokens": 200})
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_llm_max_output_tokens_helper_rejects_bool(value: bool) -> None:
+    with pytest.raises(ValueError, match="must be an integer >= 1"):
+        _llm_max_output_tokens({"max_output_tokens": value})
+
+
+@pytest.mark.parametrize("value", [0, -1, -50])
+def test_llm_max_output_tokens_helper_rejects_non_positive_int(value: int) -> None:
+    with pytest.raises(ValueError, match="must be >= 1"):
+        _llm_max_output_tokens({"max_output_tokens": value})
+
+
+@pytest.mark.parametrize("value", ["100", 50.5, [10], None])
+def test_llm_max_output_tokens_helper_rejects_non_integer(value: object) -> None:
+    with pytest.raises(ValueError, match="must be an integer >= 1"):
+        _llm_max_output_tokens({"max_output_tokens": value})  # type: ignore[dict-item]
+
+
+def test_runtime_configs_populates_generation_parameters() -> None:
+    version = make_agent_version(
+        llm=llm_binding(
+            params={
+                "temperature": 0.5,
+                "top_p": 0.8,
+                "max_output_tokens": 150,
+            }
+        )
+    )
+    llm_config, _, _ = runtime_configs_from_version(version)
+    assert llm_config.temperature == 0.5
+    assert llm_config.top_p == 0.8
+    assert llm_config.max_output_tokens == 150
+
+
+@pytest.mark.parametrize(
+    "invalid_params",
+    [
+        {"temperature": "high"},
+        {"temperature": -0.5},
+        {"top_p": 1.5},
+        {"top_p": True},
+        {"max_output_tokens": 0},
+        {"max_output_tokens": False},
+        {"max_output_tokens": 100, "max_tokens": 200},
+    ],
+)
+def test_runtime_configs_rejects_invalid_generation_parameters(
+    invalid_params: dict[str, object],
+) -> None:
+    version = make_agent_version(llm=llm_binding(params=invalid_params))  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
         runtime_configs_from_version(version)
 
 
@@ -321,6 +443,50 @@ async def test_agent_version_max_input_tokens_activates_context_budgeting() -> N
     message_contents = [m.content for m in last_request.messages]
     assert message_contents == ["u2", "a", "u3"]
     assert "u1" not in message_contents
+
+
+@pytest.mark.asyncio
+async def test_agent_version_generation_parameters_reach_llm_request() -> None:
+    """End-to-end: AgentVersion.llm.params (temperature, top_p, max_output_tokens)
+    reach the LLMRequest received by the provider via the real worker runtime."""
+    sessions, conversation, seeded = _seed_repos()
+    version = make_agent_version(
+        id=seeded.agent_version_id,
+        instructions="Be helpful.",
+        llm=llm_binding(
+            params={
+                "temperature": 0.4,
+                "top_p": 0.85,
+                "max_output_tokens": 128,
+            }
+        ),
+    )
+    llm = FakeLLMProvider(chunks=["hello back"])
+    components = build_voice_worker(
+        session=seeded,
+        agent_version=version,
+        session_repository=sessions,
+        conversation_repository=conversation,
+        transport=FakeMediaTransport(),
+        llm_provider=llm,
+        stt_provider=FakeSTTProvider(),
+        tts_provider=FakeTTSProvider(chunks=["audio"]),
+    )
+
+    assert components.runtime._llm_config.temperature == 0.4  # noqa: SLF001
+    assert components.runtime._llm_config.top_p == 0.85  # noqa: SLF001
+    assert components.runtime._llm_config.max_output_tokens == 128  # noqa: SLF001
+
+    await components.runtime.start()
+    await components.runtime.handle_input(RuntimeInput.text_input("hi"))
+    await asyncio.sleep(0)
+    await components.runtime.stop()
+
+    assert llm.requests
+    last_req = llm.requests[-1]
+    assert last_req.temperature == 0.4
+    assert last_req.top_p == 0.85
+    assert last_req.max_output_tokens == 128
 
 @pytest.mark.asyncio
 async def test_conversation_history_reaches_llm() -> None:

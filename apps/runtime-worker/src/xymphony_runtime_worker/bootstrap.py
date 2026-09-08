@@ -198,6 +198,62 @@ def _llm_max_input_tokens(params: Mapping[str, JsonValue]) -> int | None:
     return val
 
 
+def _llm_temperature(params: Mapping[str, JsonValue]) -> float | None:
+    if "temperature" not in params:
+        return None
+    val = params["temperature"]
+    if isinstance(val, bool) or not isinstance(val, int | float):
+        msg = (
+            f"temperature must be a numeric value between 0.0 and 2.0,"
+            f" got {type(val).__name__}: {val!r}"
+        )
+        raise ValueError(msg)
+    float_val = float(val)
+    if float_val < 0.0 or float_val > 2.0:
+        msg = f"temperature must be between 0.0 and 2.0, got {val}"
+        raise ValueError(msg)
+    return float_val
+
+
+def _llm_top_p(params: Mapping[str, JsonValue]) -> float | None:
+    if "top_p" not in params:
+        return None
+    val = params["top_p"]
+    if isinstance(val, bool) or not isinstance(val, int | float):
+        msg = (
+            f"top_p must be a numeric value between 0.0 and 1.0,"
+            f" got {type(val).__name__}: {val!r}"
+        )
+        raise ValueError(msg)
+    float_val = float(val)
+    if float_val < 0.0 or float_val > 1.0:
+        msg = f"top_p must be between 0.0 and 1.0, got {val}"
+        raise ValueError(msg)
+    return float_val
+
+
+def _llm_max_output_tokens(params: Mapping[str, JsonValue]) -> int | None:
+    keys = [k for k in ("max_output_tokens", "max_completion_tokens", "max_tokens") if k in params]
+    if not keys:
+        return None
+    values = [params[k] for k in keys]
+    first_val = values[0]
+    for other in values[1:]:
+        if other != first_val:
+            msg = f"conflicting max output tokens parameters in llm.params: {keys}"
+            raise ValueError(msg)
+    if isinstance(first_val, bool) or not isinstance(first_val, int):
+        msg = (
+            f"max_output_tokens must be an integer >= 1,"
+            f" got {type(first_val).__name__}: {first_val!r}"
+        )
+        raise ValueError(msg)
+    if first_val < 1:
+        msg = f"max_output_tokens must be >= 1, got {first_val}"
+        raise ValueError(msg)
+    return first_val
+
+
 def runtime_configs_from_version(
     version: AgentVersion,
 ) -> tuple[
@@ -213,6 +269,9 @@ def runtime_configs_from_version(
             system_instructions=version.compiled_system_prompt(),
             params=dict(version.llm.params),
             max_input_tokens=_llm_max_input_tokens(version.llm.params),
+            temperature=_llm_temperature(version.llm.params),
+            max_output_tokens=_llm_max_output_tokens(version.llm.params),
+            top_p=_llm_top_p(version.llm.params),
         ),
         STTRuntimeConfig(
             provider_key=version.stt.provider_key,

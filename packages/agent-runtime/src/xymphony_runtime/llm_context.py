@@ -66,4 +66,7 @@ class LLMContextAssembler:
             ),
             system=build_system_with_summary(config.system_instructions, effective_summary),
             params=config.params,
+            temperature=config.temperature,
+            max_output_tokens=config.max_output_tokens,
+            top_p=config.top_p,
         )
