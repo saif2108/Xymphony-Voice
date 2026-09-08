@@ -9,6 +9,7 @@ from xymphony_api.models import (
     AgentRow,
     AgentVersionRow,
     ConversationMessageRow,
+    ConversationSummaryRow,
     OrganizationRow,
     ProjectRow,
     SessionRow,
@@ -212,3 +213,34 @@ class ConversationRepository:
             )
         )
         return int(current or 0) + 1
+
+
+class ConversationSummaryRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_for_session(
+        self,
+        session_id: UUID,
+        *,
+        organization_id: UUID | None = None,
+    ) -> ConversationSummaryRow | None:
+        stmt = select(ConversationSummaryRow).where(ConversationSummaryRow.session_id == session_id)
+        if organization_id is not None:
+            stmt = stmt.where(ConversationSummaryRow.organization_id == organization_id)
+        return self._session.scalar(stmt)
+
+    def upsert(self, row: ConversationSummaryRow) -> ConversationSummaryRow:
+        existing = self.get_for_session(row.session_id)
+        if existing is None:
+            self._session.add(row)
+            self._session.flush()
+            return row
+        existing.organization_id = row.organization_id
+        existing.agent_version_id = row.agent_version_id
+        existing.through_sequence = row.through_sequence
+        existing.summary_text = row.summary_text
+        existing.source_message_count = row.source_message_count
+        existing.created_at = row.created_at
+        self._session.flush()
+        return existing

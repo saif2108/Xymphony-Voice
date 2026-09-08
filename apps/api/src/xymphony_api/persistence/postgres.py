@@ -5,13 +5,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from xymphony_api.mapping import message_to_contract, session_to_contract
-from xymphony_api.models import ConversationMessageRow, SessionRow
+from xymphony_api.mapping import message_to_contract, session_to_contract, summary_to_contract
+from xymphony_api.models import ConversationMessageRow, ConversationSummaryRow, SessionRow
 from xymphony_api.repositories import ConversationRepository as SqlConversationRepository
+from xymphony_api.repositories import ConversationSummaryRepository as SqlSummaryRepository
 from xymphony_api.repositories import SessionRepository as SqlSessionRepository
 from xymphony_contracts.enums import SessionStatus
 from xymphony_contracts.persistence import CreateSessionRequest
 from xymphony_contracts.session import Message, Session
+from xymphony_contracts.summary import ConversationSummary
 
 
 class PostgresSessionRepository:
@@ -111,3 +113,35 @@ class PostgresConversationRepository:
 
     def next_sequence(self, session_id: UUID) -> int:
         return self._sql.next_sequence(session_id)
+
+
+class PostgresConversationSummaryRepository:
+    """Contract port adapter for one rolling summary per session."""
+
+    def __init__(self, sql: SqlSummaryRepository) -> None:
+        self._sql = sql
+
+    def get_latest(
+        self,
+        session_id: UUID,
+        *,
+        organization_id: UUID | None = None,
+    ) -> ConversationSummary | None:
+        row = self._sql.get_for_session(session_id, organization_id=organization_id)
+        if row is None:
+            return None
+        return summary_to_contract(row)
+
+    def upsert(self, summary: ConversationSummary) -> ConversationSummary:
+        row = ConversationSummaryRow(
+            id=summary.id,
+            session_id=summary.session_id,
+            organization_id=summary.organization_id,
+            agent_version_id=summary.agent_version_id,
+            through_sequence=summary.through_sequence,
+            summary_text=summary.summary_text,
+            source_message_count=summary.source_message_count,
+            created_at=summary.created_at,
+        )
+        saved = self._sql.upsert(row)
+        return summary_to_contract(saved)

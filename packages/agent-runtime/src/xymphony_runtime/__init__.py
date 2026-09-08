@@ -16,11 +16,16 @@ from xymphony_runtime.lifecycle import RuntimeSessionLifecycleState
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.llm_context import LLMContextAssembler
 from xymphony_runtime.observations import LifecycleTransition, RuntimeObservation
-from xymphony_runtime.persistence import InMemoryConversationRepository, InMemorySessionRepository
+from xymphony_runtime.persistence import (
+    InMemoryConversationRepository,
+    InMemoryConversationSummaryRepository,
+    InMemorySessionRepository,
+)
 from xymphony_runtime.runtime import AgentRuntime
 from xymphony_runtime.session import MinimalTransportSession
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk, StreamChunkKind
 from xymphony_runtime.stt_config import STTRuntimeConfig
+from xymphony_runtime.summarization import ConversationSummarizer
 from xymphony_runtime.token_estimate import approximate_token_count
 from xymphony_runtime.tts_config import TTSRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn, RuntimeTurnLifecycleState
@@ -30,8 +35,10 @@ __all__ = [
     "AgentRuntime",
     "ContextBudgetExceededError",
     "ContextBudgetPolicy",
+    "ConversationSummarizer",
     "IncrementalOutputSink",
     "InMemoryConversationRepository",
+    "InMemoryConversationSummaryRepository",
     "InMemorySessionRepository",
     "LLMRuntimeConfig",
     "LLMContextAssembler",

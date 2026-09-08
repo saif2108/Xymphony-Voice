@@ -49,6 +49,13 @@ def message_text(message: Message) -> str | None:
     return "".join(parts)
 
 
+def message_sequence(message: Message, *, fallback: int | None = None) -> int | None:
+    value = message.metadata.get("sequence")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return fallback
+
+
 def message_to_llm(message: Message) -> LLMMessage | None:
     text = message_text(message)
     if text is None:

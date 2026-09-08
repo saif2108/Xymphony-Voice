@@ -17,6 +17,7 @@ def test_expected_tables_exist(test_engine: Engine) -> None:
         "agent_versions",
         "sessions",
         "conversation_messages",
+        "conversation_summaries",
     }
     assert expected.issubset(names)
 

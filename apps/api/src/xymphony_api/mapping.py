@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from xymphony_api.models import AgentRow, AgentVersionRow, ConversationMessageRow, SessionRow
+from xymphony_api.models import (
+    AgentRow,
+    AgentVersionRow,
+    ConversationMessageRow,
+    ConversationSummaryRow,
+    SessionRow,
+)
 from xymphony_contracts import (
     Agent,
     AgentStatus,
@@ -8,6 +14,7 @@ from xymphony_contracts import (
     AgentVersionStatus,
     Channel,
     ContentPart,
+    ConversationSummary,
     LLMBinding,
     Message,
     MessageRole,
@@ -94,4 +101,17 @@ def message_to_contract(row: ConversationMessageRow) -> Message:
         parts=parts,
         created_at=row.created_at,
         metadata={"sequence": row.sequence},
+    )
+
+
+def summary_to_contract(row: ConversationSummaryRow) -> ConversationSummary:
+    return ConversationSummary(
+        id=row.id,
+        session_id=row.session_id,
+        organization_id=row.organization_id,
+        agent_version_id=row.agent_version_id,
+        through_sequence=row.through_sequence,
+        summary_text=row.summary_text,
+        source_message_count=row.source_message_count,
+        created_at=row.created_at,
     )

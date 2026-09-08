@@ -12,22 +12,26 @@ from sqlalchemy.orm import Session as SqlSession
 from xymphony_api.mapping import version_to_contract
 from xymphony_api.persistence.postgres import (
     PostgresConversationRepository,
+    PostgresConversationSummaryRepository,
     PostgresSessionRepository,
 )
 from xymphony_api.repositories import AgentVersionRepository
 from xymphony_api.repositories import ConversationRepository as SqlConversationRepository
+from xymphony_api.repositories import ConversationSummaryRepository as SqlSummaryRepository
 from xymphony_api.repositories import SessionRepository as SqlSessionRepository
 from xymphony_contracts import AgentVersion
 from xymphony_contracts.llm import LLMProvider
 from xymphony_contracts.media_transport import MediaTransport
 from xymphony_contracts.persistence import (
     ConversationRepository,
+    ConversationSummaryRepository,
     CreateSessionRequest,
     SessionRepository,
 )
 from xymphony_contracts.session import Message
 from xymphony_contracts.session import Session as SessionContract
 from xymphony_contracts.stt import STTProvider
+from xymphony_contracts.summary import ConversationSummary
 from xymphony_contracts.tts import TTSOutputAudioResolver, TTSProvider
 from xymphony_providers.registry import (
     create_llm_provider,
@@ -111,6 +115,27 @@ class _CommittingConversationRepository:
         return self._inner.next_sequence(session_id)
 
 
+class _CommittingConversationSummaryRepository:
+    """Wraps a summary repository and commits after each write."""
+
+    def __init__(self, inner: ConversationSummaryRepository, sql: SqlSession) -> None:
+        self._inner = inner
+        self._sql = sql
+
+    def get_latest(
+        self,
+        session_id: UUID,
+        *,
+        organization_id: UUID | None = None,
+    ) -> ConversationSummary | None:
+        return self._inner.get_latest(session_id, organization_id=organization_id)
+
+    def upsert(self, summary: ConversationSummary) -> ConversationSummary:
+        result = self._inner.upsert(summary)
+        self._sql.commit()
+        return result
+
+
 def load_session_bundle(
     sql: SqlSession,
     session_id: UUID,
@@ -158,7 +183,9 @@ def runtime_context_from_session(session: SessionContract) -> RuntimeContext:
     )
 
 
-def runtime_configs_from_version(version: AgentVersion) -> tuple[
+def runtime_configs_from_version(
+    version: AgentVersion,
+) -> tuple[
     LLMRuntimeConfig,
     STTRuntimeConfig,
     TTSRuntimeConfig,
@@ -223,6 +250,7 @@ def build_voice_worker(
     agent_version: AgentVersion,
     session_repository: SessionRepository,
     conversation_repository: ConversationRepository,
+    summary_repository: ConversationSummaryRepository | None = None,
     transport: MediaTransport | None = None,
     llm_provider: LLMProvider | None = None,
     stt_provider: STTProvider | None = None,
@@ -251,6 +279,7 @@ def build_voice_worker(
         tts_config=tts_config,
         session_repository=session_repository,
         conversation_repository=conversation_repository,
+        summary_repository=summary_repository,
     )
 
     resolved_transport = transport or LiveKitMediaTransport()
@@ -302,11 +331,19 @@ def build_voice_worker_from_db(
             sql,
         ),
     )
+    summary_repo = cast(
+        ConversationSummaryRepository,
+        _CommittingConversationSummaryRepository(
+            PostgresConversationSummaryRepository(SqlSummaryRepository(sql)),
+            sql,
+        ),
+    )
     return build_voice_worker(
         session=session,
         agent_version=agent_version,
         session_repository=session_repo,
         conversation_repository=conversation_repo,
+        summary_repository=summary_repo,
         transport=transport,
         llm_provider=llm_provider,
         stt_provider=stt_provider,

@@ -168,6 +168,11 @@ class SessionRow(Base):
     messages: Mapped[list[ConversationMessageRow]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
+    summary: Mapped[ConversationSummaryRow | None] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class ConversationMessageRow(Base):
@@ -194,3 +199,34 @@ class ConversationMessageRow(Base):
     )
 
     session: Mapped[SessionRow] = relationship(back_populates="messages")
+
+
+class ConversationSummaryRow(Base):
+    """One rolling derived summary per session (not part of the transcript ledger)."""
+
+    __tablename__ = "conversation_summaries"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
+    agent_version_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    through_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    session: Mapped[SessionRow] = relationship(back_populates="summary")

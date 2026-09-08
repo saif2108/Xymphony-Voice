@@ -12,7 +12,11 @@ from xymphony_contracts import Event
 from xymphony_contracts.enums import EventType, MessageRole, SessionEndReason, SessionStatus
 from xymphony_contracts.events import TextRange, TranscriptFramePayload
 from xymphony_contracts.llm import LLMProvider
-from xymphony_contracts.persistence import ConversationRepository, SessionRepository
+from xymphony_contracts.persistence import (
+    ConversationRepository,
+    ConversationSummaryRepository,
+    SessionRepository,
+)
 from xymphony_contracts.provider import ProviderError
 from xymphony_contracts.session import Message
 from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
@@ -44,6 +48,7 @@ from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.llm_context import LLMContextAssembler
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk
 from xymphony_runtime.stt_config import STTRuntimeConfig
+from xymphony_runtime.summarization import ConversationSummarizer
 from xymphony_runtime.tts_config import TTSRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn
 
@@ -68,11 +73,13 @@ class AgentRuntime:
         tts_config: TTSRuntimeConfig | None = None,
         session_repository: SessionRepository | None = None,
         conversation_repository: ConversationRepository | None = None,
+        summary_repository: ConversationSummaryRepository | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
         self._session_repository = session_repository
         self._conversation_repository = conversation_repository
+        self._summary_repository = summary_repository
         self._llm_provider = llm_provider
         self._llm_config = llm_config
         self._stt_provider = stt_provider
@@ -91,6 +98,13 @@ class AgentRuntime:
         self._stt_tasks: dict[UUID, asyncio.Task[None]] = {}
         self._tts_cancel_tokens: dict[UUID, EventCancellationToken] = {}
         self._llm_context_assembler = LLMContextAssembler()
+        self._summarizer: ConversationSummarizer | None = None
+        if llm_provider is not None and llm_config is not None and summary_repository is not None:
+            self._summarizer = ConversationSummarizer(
+                llm_provider=llm_provider,
+                llm_config=llm_config,
+                summary_repository=summary_repository,
+            )
 
     @property
     def context(self) -> RuntimeContext:
@@ -438,11 +452,29 @@ class AgentRuntime:
             return None
 
         history = self._conversation_messages()
-        try:
-            request = self._llm_context_assembler.assemble(
+        summary_text: str | None = None
+        assembly_history = history
+        if self._summarizer is not None:
+            preparation = await self._summarizer.prepare(
+                session_id=self._context.session_id,
+                organization_id=self._context.organization_id,
+                agent_version_id=self._context.agent_version_id,
                 history=history,
                 current_user_text=text,
+                cancel=cancel,
+                is_turn_cancelled=lambda: self._context.is_turn_cancelled(turn.id),
+            )
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return None
+            summary_text = preparation.summary_text
+            assembly_history = preparation.history_for_assembly
+
+        try:
+            request = self._llm_context_assembler.assemble(
+                history=assembly_history,
+                current_user_text=text,
                 config=self._llm_config,
+                summary_text=summary_text,
             )
         except ContextBudgetExceededError as exc:
             turn.fail(error_code="context_budget_exceeded")

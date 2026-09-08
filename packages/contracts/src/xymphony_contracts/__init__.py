@@ -50,6 +50,7 @@ from xymphony_contracts.llm import (
 )
 from xymphony_contracts.persistence import (
     ConversationRepository,
+    ConversationSummaryRepository,
     CreateSessionRequest,
     SessionRepository,
 )
@@ -62,6 +63,7 @@ from xymphony_contracts.stt import (
     STTRequest,
     STTTranscriptChunk,
 )
+from xymphony_contracts.summary import ConversationSummary
 from xymphony_contracts.tts import (
     TTSProvider,
     TTSRequest,
@@ -85,6 +87,8 @@ __all__ = [
     "ContentPart",
     "ContentPartType",
     "ConversationRepository",
+    "ConversationSummary",
+    "ConversationSummaryRepository",
     "CreateSessionRequest",
     "ErrorPayload",
     "Event",

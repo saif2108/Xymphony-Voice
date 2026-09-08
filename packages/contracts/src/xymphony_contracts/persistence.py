@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from xymphony_contracts.enums import Channel
 from xymphony_contracts.session import Message, Session
+from xymphony_contracts.summary import ConversationSummary
 
 
 class CreateSessionRequest(BaseModel):
@@ -56,3 +57,16 @@ class ConversationRepository(Protocol):
     ) -> tuple[Message, ...]: ...
 
     def next_sequence(self, session_id: UUID) -> int: ...
+
+
+class ConversationSummaryRepository(Protocol):
+    """Port for one active rolling summary per session (derived state)."""
+
+    def get_latest(
+        self,
+        session_id: UUID,
+        *,
+        organization_id: UUID | None = None,
+    ) -> ConversationSummary | None: ...
+
+    def upsert(self, summary: ConversationSummary) -> ConversationSummary: ...
