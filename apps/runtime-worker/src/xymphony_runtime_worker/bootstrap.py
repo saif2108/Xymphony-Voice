@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy.orm import Session as SqlSession
 
 from xymphony_api.mapping import version_to_contract
@@ -183,6 +185,19 @@ def runtime_context_from_session(session: SessionContract) -> RuntimeContext:
     )
 
 
+def _llm_max_input_tokens(params: Mapping[str, JsonValue]) -> int | None:
+    if "max_input_tokens" not in params:
+        return None
+    val = params["max_input_tokens"]
+    if isinstance(val, bool) or not isinstance(val, int):
+        msg = f"max_input_tokens must be an integer >= 1, got {type(val).__name__}: {val!r}"
+        raise ValueError(msg)
+    if val < 1:
+        msg = f"max_input_tokens must be >= 1, got {val}"
+        raise ValueError(msg)
+    return val
+
+
 def runtime_configs_from_version(
     version: AgentVersion,
 ) -> tuple[
@@ -197,6 +212,7 @@ def runtime_configs_from_version(
             model=version.llm.model,
             system_instructions=version.compiled_system_prompt(),
             params=dict(version.llm.params),
+            max_input_tokens=_llm_max_input_tokens(version.llm.params),
         ),
         STTRuntimeConfig(
             provider_key=version.stt.provider_key,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from tests.helpers import make_agent_version, make_session
+from tests.helpers import llm_binding, make_agent_version, make_session
 from tests.unit.runtime.bridge_helpers import bridge_transport_config
 from tests.unit.runtime.voice_helpers import make_voice_bridge
 
@@ -27,6 +27,7 @@ from xymphony_runtime import (
 from xymphony_runtime.conversation import message_text
 from xymphony_runtime_worker.bootstrap import (
     VoiceWorkerComponents,
+    _llm_max_input_tokens,
     build_voice_worker,
     runtime_configs_from_version,
     runtime_context_from_session,
@@ -125,6 +126,46 @@ def test_runtime_configs_omit_blank_personality() -> None:
     assert llm_config.system_instructions == "Speak briefly."
 
 
+def test_llm_max_input_tokens_helper_absent_returns_none() -> None:
+    assert _llm_max_input_tokens({}) is None
+    assert _llm_max_input_tokens({"temperature": 0.7}) is None
+
+
+def test_llm_max_input_tokens_helper_valid_positive_integer() -> None:
+    assert _llm_max_input_tokens({"max_input_tokens": 1}) == 1
+    assert _llm_max_input_tokens({"max_input_tokens": 4096}) == 4096
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_llm_max_input_tokens_helper_rejects_bool(value: bool) -> None:
+    with pytest.raises(ValueError, match="must be an integer >= 1"):
+        _llm_max_input_tokens({"max_input_tokens": value})
+
+
+@pytest.mark.parametrize("value", [0, -1, -100])
+def test_llm_max_input_tokens_helper_rejects_non_positive_int(value: int) -> None:
+    with pytest.raises(ValueError, match="must be >= 1"):
+        _llm_max_input_tokens({"max_input_tokens": value})
+
+
+@pytest.mark.parametrize("value", ["100", 50.5, [10], {"a": 1}, None])
+def test_llm_max_input_tokens_helper_rejects_non_integer(value: object) -> None:
+    with pytest.raises(ValueError, match="must be an integer >= 1"):
+        _llm_max_input_tokens({"max_input_tokens": value})  # type: ignore[arg-type]
+
+
+def test_runtime_configs_populates_max_input_tokens() -> None:
+    version = make_agent_version(llm=llm_binding(params={"max_input_tokens": 500}))
+    llm_config, _, _ = runtime_configs_from_version(version)
+    assert llm_config.max_input_tokens == 500
+
+
+def test_runtime_configs_rejects_invalid_max_input_tokens() -> None:
+    version = make_agent_version(llm=llm_binding(params={"max_input_tokens": -5}))
+    with pytest.raises(ValueError, match="must be >= 1"):
+        runtime_configs_from_version(version)
+
+
 def test_openai_compatible_alias_normalizes() -> None:
     assert normalize_llm_provider_key("openai_compatible") == "openai"
     assert normalize_llm_provider_key("openai") == "openai"
@@ -210,6 +251,76 @@ async def test_personality_reaches_llm_through_real_turn() -> None:
 
     assert llm.requests
     assert llm.requests[-1].system == "Warm and upbeat.\n\nAnswer billing questions."
+
+
+@pytest.mark.asyncio
+async def test_agent_version_max_input_tokens_activates_context_budgeting() -> None:
+    """End-to-end: AgentVersion.llm.params['max_input_tokens'] reaches the runtime
+    and causes deterministic context budgeting to drop older history while keeping
+    newest history and the current user message."""
+    sessions, conversation, seeded = _seed_repos()
+    # Instructions: 'sys' (~1 token).
+    # Assistant reply chunk: 'a' (~1 token).
+    # Turn 1: user 'u1' (1 token) -> assistant 'a' (1 token)
+    # Turn 2: user 'u2' (1 token) -> assistant 'a' (1 token)
+    # History before Turn 3: 4 messages ('u1', 'a', 'u2', 'a'), 4 tokens.
+    # Turn 3 user utterance: 'u3' (1 token).
+    # System prompt: 'sys' (1 token).
+    # With max_input_tokens=4:
+    # System (1) + current (1) = 2 tokens.
+    # Remaining budget for history = 2 tokens.
+    # Suffix selected newest first: assistant 'a' (1) + user 'u2' (1) = 2 tokens.
+    # Older history ('u1', 'a') is dropped.
+    version = make_agent_version(
+        id=seeded.agent_version_id,
+        instructions="sys",
+        personality="",
+        llm=llm_binding(params={"max_input_tokens": 4}),
+    )
+    llm = FakeLLMProvider(chunks=["a"])
+    components = build_voice_worker(
+        session=seeded,
+        agent_version=version,
+        session_repository=sessions,
+        conversation_repository=conversation,
+        transport=FakeMediaTransport(),
+        llm_provider=llm,
+        stt_provider=FakeSTTProvider(),
+        tts_provider=FakeTTSProvider(chunks=["audio"]),
+    )
+
+    # Verify the runtime config received the configured max_input_tokens
+    assert components.runtime._llm_config.max_input_tokens == 4  # noqa: SLF001
+
+    await components.runtime.start()
+
+    # Turn 1: 'u1'
+    await components.runtime.handle_input(RuntimeInput.text_input("u1"))
+    await asyncio.sleep(0)
+
+    # Turn 2: 'u2'
+    await components.runtime.handle_input(RuntimeInput.text_input("u2"))
+    await asyncio.sleep(0)
+
+    # Turn 3: 'u3'
+    await components.runtime.handle_input(RuntimeInput.text_input("u3"))
+    await asyncio.sleep(0)
+
+    await components.runtime.stop()
+
+    assert len(llm.requests) == 3
+    last_request = llm.requests[-1]
+
+    # Verify system prompt remains intact
+    assert last_request.system == "sys"
+
+    # Verify messages in last request:
+    # older history ('u1', 'a' from turn 1) dropped by context budgeting policy
+    # newer history ('u2', 'a' from turn 2) retained
+    # current user message ('u3') retained
+    message_contents = [m.content for m in last_request.messages]
+    assert message_contents == ["u2", "a", "u3"]
+    assert "u1" not in message_contents
 
 @pytest.mark.asyncio
 async def test_conversation_history_reaches_llm() -> None:
