@@ -108,6 +108,19 @@ def test_session_pinned_to_agent_version() -> None:
 
 def test_runtime_configs_use_pinned_version_instructions() -> None:
     version = make_agent_version(instructions="Speak briefly.")
+    version = make_agent_version(instructions="Speak briefly.", personality="")
+    llm_config, _, _ = runtime_configs_from_version(version)
+    assert llm_config.system_instructions == "Speak briefly."
+
+
+def test_runtime_configs_join_personality_and_instructions() -> None:
+    version = make_agent_version(instructions="Speak briefly.", personality="Warm and upbeat.")
+    llm_config, _, _ = runtime_configs_from_version(version)
+    assert llm_config.system_instructions == "Warm and upbeat.\n\nSpeak briefly."
+
+
+def test_runtime_configs_omit_blank_personality() -> None:
+    version = make_agent_version(instructions="Speak briefly.", personality="   ")
     llm_config, _, _ = runtime_configs_from_version(version)
     assert llm_config.system_instructions == "Speak briefly."
 
@@ -167,6 +180,36 @@ async def test_multiple_conversational_turns() -> None:
     await components.bridge.shutdown()
     await run_task
 
+@pytest.mark.asyncio
+async def test_personality_reaches_llm_through_real_turn() -> None:
+    """End-to-end: AgentVersion.personality must reach the LLM system prompt
+    via the real build_voice_worker → AgentRuntime → LLMContextAssembler path,
+    not just the isolated runtime_configs_from_version mapping function."""
+    sessions, conversation, seeded = _seed_repos()
+    version = make_agent_version(
+        id=seeded.agent_version_id,
+        instructions="Answer billing questions.",
+        personality="Warm and upbeat.",
+    )
+    llm = FakeLLMProvider(chunks=["reply"])
+    components = build_voice_worker(
+        session=seeded,
+        agent_version=version,
+        session_repository=sessions,
+        conversation_repository=conversation,
+        transport=FakeMediaTransport(),
+        llm_provider=llm,
+        stt_provider=FakeSTTProvider(),
+        tts_provider=FakeTTSProvider(chunks=["audio"]),
+    )
+
+    await components.runtime.start()
+    await components.runtime.handle_input(RuntimeInput.text_input("What's my balance?"))
+    await asyncio.sleep(0)
+    await components.runtime.stop()
+
+    assert llm.requests
+    assert llm.requests[-1].system == "Warm and upbeat.\n\nAnswer billing questions."
 
 @pytest.mark.asyncio
 async def test_conversation_history_reaches_llm() -> None:

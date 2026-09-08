@@ -195,7 +195,7 @@ def runtime_configs_from_version(
         LLMRuntimeConfig(
             provider_key=llm_key,
             model=version.llm.model,
-            system_instructions=version.instructions,
+            system_instructions=version.compiled_system_prompt(),
             params=dict(version.llm.params),
         ),
         STTRuntimeConfig(
