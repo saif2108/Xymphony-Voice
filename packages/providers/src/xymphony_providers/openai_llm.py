@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from openai import (
@@ -18,12 +19,70 @@ from xymphony_contracts.llm import (
     CancellationToken,
     LLMRequest,
     LLMStreamChunk,
+    LLMToolCall,
     ProviderError,
     ProviderErrorCode,
 )
 from xymphony_contracts.usage import Usage
 
 _OPENAI_PROVIDER_KEY = "openai"
+
+
+@dataclass
+class _ToolCallAccumulator:
+    """Accumulates streamed tool-call deltas for a single tool call."""
+
+    id: str = ""
+    name: str = ""
+    arguments: str = ""
+
+
+@dataclass
+class _ToolCallCollector:
+    """Collects all tool-call accumulators across streamed chunks."""
+
+    _accumulators: dict[int, _ToolCallAccumulator] = field(default_factory=dict)
+
+    def feed_delta(self, tool_call_delta: Any) -> None:
+        """Process one tool-call delta from an OpenAI streamed chunk."""
+        index: int = getattr(tool_call_delta, "index", 0)
+        acc = self._accumulators.get(index)
+        if acc is None:
+            acc = _ToolCallAccumulator()
+            self._accumulators[index] = acc
+
+        tc_id = getattr(tool_call_delta, "id", None)
+        if tc_id:
+            acc.id = tc_id
+
+        func = getattr(tool_call_delta, "function", None)
+        if func is not None:
+            fn_name = getattr(func, "name", None)
+            if fn_name:
+                acc.name += fn_name
+            fn_args = getattr(func, "arguments", None)
+            if fn_args:
+                acc.arguments += fn_args
+
+    def to_tool_calls(self) -> tuple[LLMToolCall, ...]:
+        """Convert accumulated deltas to provider-neutral LLMToolCall objects."""
+        if not self._accumulators:
+            return ()
+        result: list[LLMToolCall] = []
+        for _index in sorted(self._accumulators):
+            acc = self._accumulators[_index]
+            result.append(
+                LLMToolCall(
+                    id=acc.id or f"call_{_index}",
+                    name=acc.name,
+                    arguments=acc.arguments or "{}",
+                )
+            )
+        return tuple(result)
+
+    @property
+    def has_tool_calls(self) -> bool:
+        return bool(self._accumulators)
 
 
 class OpenAILLMProvider:
@@ -81,6 +140,11 @@ class OpenAILLMProvider:
         if max_output_tokens is not None:
             kwargs["max_completion_tokens"] = max_output_tokens
 
+        if request.tools:
+            kwargs["tools"] = _to_openai_tools(request)
+
+        tool_collector = _ToolCallCollector()
+
         try:
             stream = await self._client.chat.completions.create(**kwargs)
             async for chunk in stream:
@@ -89,10 +153,31 @@ class OpenAILLMProvider:
                 choice = chunk.choices[0] if chunk.choices else None
                 if choice is None:
                     continue
+
+                # Accumulate tool-call deltas if present
+                delta_tool_calls = getattr(choice.delta, "tool_calls", None)
+                if delta_tool_calls:
+                    for tc_delta in delta_tool_calls:
+                        tool_collector.feed_delta(tc_delta)
+
                 delta = choice.delta.content or ""
                 finish_reason = choice.finish_reason
+
                 if delta or finish_reason:
-                    yield LLMStreamChunk(delta=delta, finish_reason=finish_reason)
+                    # Attach accumulated tool calls on the final chunk
+                    completed_tools = (
+                        tool_collector.to_tool_calls()
+                        if finish_reason
+                        else ()
+                    )
+                    yield LLMStreamChunk(
+                        delta=delta,
+                        finish_reason=finish_reason,
+                        tool_calls=completed_tools,
+                    )
+                elif delta_tool_calls and not delta and not finish_reason:
+                    # Tool-call-only delta chunk (no text, no finish) — continue accumulating
+                    continue
         except Exception as exc:
             raise _normalize_openai_error(exc) from exc
 
@@ -104,6 +189,21 @@ def _to_openai_messages(request: LLMRequest) -> list[dict[str, str]]:
     for message in request.messages:
         messages.append({"role": message.role.value, "content": message.content})
     return messages
+
+
+def _to_openai_tools(request: LLMRequest) -> list[dict[str, Any]]:
+    """Translate provider-neutral LLMToolDefinition to OpenAI's tool format."""
+    tools: list[dict[str, Any]] = []
+    for tool_def in request.tools:
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": tool_def.name,
+                "description": tool_def.description,
+                "parameters": tool_def.parameters,
+            },
+        })
+    return tools
 
 
 def _normalize_openai_error(exc: Exception) -> ProviderError:

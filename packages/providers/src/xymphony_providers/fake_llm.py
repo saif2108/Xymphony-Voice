@@ -9,6 +9,7 @@ from xymphony_contracts.llm import (
     CancellationToken,
     LLMRequest,
     LLMStreamChunk,
+    LLMToolCall,
     ProviderError,
     ProviderErrorCode,
 )
@@ -21,10 +22,12 @@ class FakeLLMProvider:
         self,
         *,
         chunks: list[str] | None = None,
+        tool_calls: list[LLMToolCall] | None = None,
         fail_with: ProviderError | None = None,
         delay_seconds: float = 0,
     ) -> None:
         self.chunks = chunks or ["hello", " world"]
+        self.tool_calls = tuple(tool_calls) if tool_calls else ()
         self.fail_with = fail_with
         self.delay_seconds = delay_seconds
         self.requests: list[LLMRequest] = []
@@ -45,8 +48,16 @@ class FakeLLMProvider:
                 await asyncio.sleep(self.delay_seconds)
             if cancel.cancelled:
                 return
-            finish_reason = "stop" if index == len(self.chunks) - 1 else None
-            yield LLMStreamChunk(delta=delta, finish_reason=finish_reason)
+            is_last = index == len(self.chunks) - 1
+            finish_reason = (
+                ("tool_calls" if self.tool_calls else "stop") if is_last else None
+            )
+            tool_calls = self.tool_calls if is_last else ()
+            yield LLMStreamChunk(
+                delta=delta,
+                finish_reason=finish_reason,
+                tool_calls=tool_calls,
+            )
 
 
 def cancelled_provider_error() -> ProviderError:

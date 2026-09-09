@@ -76,6 +76,7 @@ class LLMStreamChunk(BaseModel):
 
     delta: str
     finish_reason: str | None = Field(default=None, max_length=64)
+    tool_calls: tuple[LLMToolCall, ...] = ()
 
 
 class LLMResponse(BaseModel):
