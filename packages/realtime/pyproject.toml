@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Media transport adapters for Xymphony Voice (LiveKit)"
 requires-python = ">=3.12"
 dependencies = [
-    "xymphony-contracts @ file:packages/contracts",
+    "xymphony-contracts",
     "livekit>=0.17",
     "livekit-api>=0.8",
 ]

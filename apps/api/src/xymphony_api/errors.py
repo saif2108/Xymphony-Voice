@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -74,11 +75,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         request_id = getattr(request.state, "request_id", "unknown")
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content=error_body(
-                code="validation_error",
-                message="Request validation failed",
-                request_id=request_id,
-                details={"errors": exc.errors()},
+            content=jsonable_encoder(
+                error_body(
+                    code="validation_error",
+                    message="Request validation failed",
+                    request_id=request_id,
+                    details={"errors": exc.errors()},
+                )
             ),
         )
 
