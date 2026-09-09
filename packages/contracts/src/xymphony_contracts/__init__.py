@@ -64,6 +64,7 @@ from xymphony_contracts.stt import (
     STTTranscriptChunk,
 )
 from xymphony_contracts.summary import ConversationSummary
+from xymphony_contracts.tools import ToolErrorCode, ToolResult
 from xymphony_contracts.tts import (
     TTSProvider,
     TTSRequest,
@@ -131,6 +132,8 @@ __all__ = [
     "TTSResponse",
     "TTSStreamChunk",
     "TTSTextRange",
+    "ToolErrorCode",
+    "ToolResult",
     "TranscriptFramePayload",
     "Turn",
     "TurnStatus",

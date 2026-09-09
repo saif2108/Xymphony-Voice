@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "xymphony-contracts",
+    "xymphony-tools",
     "xymphony-api",
     "xymphony-realtime",
     "xymphony-agent-runtime",
@@ -18,6 +19,7 @@ package = false
 [tool.uv.workspace]
 members = [
     "packages/contracts",
+    "packages/tools",
     "packages/realtime",
     "packages/agent-runtime",
     "packages/providers",
@@ -27,6 +29,7 @@ members = [
 
 [tool.uv.sources]
 xymphony-contracts = { workspace = true }
+xymphony-tools = { workspace = true }
 xymphony-api = { workspace = true }
 xymphony-realtime = { workspace = true }
 xymphony-agent-runtime = { workspace = true }
@@ -47,6 +50,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = [
     "packages/contracts/src",
+    "packages/tools/src",
     "packages/realtime/src",
     "packages/agent-runtime/src",
     "packages/providers/src",
@@ -66,6 +70,7 @@ target-version = "py312"
 line-length = 100
 src = [
     "packages/contracts/src",
+    "packages/tools/src",
     "packages/realtime/src",
     "packages/agent-runtime/src",
     "packages/providers/src",
@@ -85,9 +90,10 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "packages/contracts/src,packages/realtime/src,packages/agent-runtime/src,packages/providers/src,apps/api/src,apps/runtime-worker/src"
+mypy_path = "packages/contracts/src,packages/tools/src,packages/realtime/src,packages/agent-runtime/src,packages/providers/src,apps/api/src,apps/runtime-worker/src"
 packages = [
     "xymphony_contracts",
+    "xymphony_tools",
     "xymphony_realtime",
     "xymphony_runtime",
     "xymphony_providers",
