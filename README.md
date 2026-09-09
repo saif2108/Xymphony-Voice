@@ -12,8 +12,8 @@ This repository is **not** an insurance-agent app and **not** a single-vendor vo
 
 | Item | State |
 | --- | --- |
-| **Phase** | **Phase 1 Step 2 — control-plane API + Agent CRUD** |
-| **Application code** | `packages/contracts`, `apps/api`. No runtime, LiveKit, or dashboard. |
+| **Phase** | **Phase 3 complete — context / memory foundation** |
+| **Application code** | Contracts, control-plane API, runtime worker, provider adapters, realtime transport, and dashboard. |
 | **Remote** | `https://github.com/saif2108/Xymphony-Voice.git` |
 
 Phase 0 exists so Phase 1 can **implement** instead of debating what Agent, Session, or barge-in mean.
@@ -77,9 +77,9 @@ ASCII diagrams and failure behavior: [docs/architecture.md](docs/architecture.md
 
 ## Repository structure
 
-**Today:** `docs/`, `packages/contracts/`, `apps/api/`, `docker-compose.yml`, `tests/`.
-
-**Later Phase 1** (not created yet): `apps/dashboard`, `apps/runtime-worker`, provider adapters.
+**Today:** `docs/`, `packages/contracts/`, `packages/agent-runtime/`,
+`packages/providers/`, `packages/realtime/`, `apps/api/`,
+`apps/runtime-worker/`, `apps/dashboard/`, `docker-compose.yml`, and `tests/`.
 
 Monorepo: [ADR-005](docs/decisions/ADR-005-monorepo.md). Do not add empty directories for show.
 
@@ -165,6 +165,7 @@ Rules: [CLAUDE.md](CLAUDE.md). Done means: [docs/definition-of-done.md](docs/def
 | [docs/status/phase-0-review.md](docs/status/phase-0-review.md) | Phase 0 audit |
 | [docs/status/phase-1-step-1.md](docs/status/phase-1-step-1.md) | Contracts foundation |
 | [docs/status/phase-1-step-2.md](docs/status/phase-1-step-2.md) | API + Postgres + Agent CRUD |
+| [docs/status/phase-3-step-8.md](docs/status/phase-3-step-8.md) | Final Phase 3 integration and hardening |
 
 ---
 

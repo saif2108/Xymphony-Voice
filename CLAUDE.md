@@ -42,19 +42,16 @@ Completed:
 
 -   Phase 1
 -   Phase 2
--   Phase 3 Step 1
--   Phase 3 Step 2
--   Phase 3 Step 3
+-   Phase 3 Steps 1-8
 
 Current Git checkpoint:
 
-`ec97948` --- `Phase 3 Step 3: add conversation summarization`
+`e78ad96` --- `Phase 3 Step 7: context and conversation-memory robustness tests`
 
-Phase 3 Step 3 includes provider-neutral context assembly, deterministic
-context budgeting, lazy rolling conversation summarization, persistent
-summaries, summary coverage tracking via `through_sequence`,
-summary-aware budgeting, cancellation safety, soft summary failure, and
-preservation of the original conversation ledger.
+Phase 3 is complete. It includes provider-neutral context assembly,
+deterministic budgeting, lazy rolling conversation summarization with
+persistent coverage tracking, AgentVersion prompt/configuration propagation,
+provider-neutral generation parameters, and final integration hardening.
 
 PostgreSQL integration has not been fully exercised locally because the
 current development environment does not have the required
@@ -835,10 +832,11 @@ worker bootstrap.
 
 ### Phase 3 --- Context / Memory Foundation
 
-Current phase; completed through Step 3.
+Completed through Step 8.
 
-Includes context assembly, context budgeting, and conversation
-summarization.
+Includes context assembly, context budgeting, conversation summarization,
+AgentVersion prompt/configuration propagation, provider-neutral generation
+parameters, and final integration hardening.
 
 ### Phase 4 --- Agent Builder
 
