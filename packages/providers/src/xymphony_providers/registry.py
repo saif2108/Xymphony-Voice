@@ -10,9 +10,10 @@ from xymphony_contracts.stt import STTProvider
 from xymphony_contracts.tts import TTSProvider
 from xymphony_providers.assemblyai_stt import AssemblyAISTTProvider
 from xymphony_providers.elevenlabs_tts import ElevenLabsTTSProvider
+from xymphony_providers.groq_llm import GroqLLMProvider
 from xymphony_providers.openai_llm import OpenAILLMProvider
 
-_LLM_SUPPORTED = frozenset({"openai"})
+_LLM_SUPPORTED = frozenset({"openai", "groq"})
 _STT_SUPPORTED = frozenset({"assemblyai"})
 _TTS_SUPPORTED = frozenset({"elevenlabs"})
 _LLM_ALIASES = {"openai_compatible": "openai"}
@@ -35,6 +36,10 @@ def create_llm_provider(provider_key: str, *, model: str) -> LLMProvider:
         api_key = os.getenv("OPENAI_API_KEY", "")
         configured_model = os.getenv("OPENAI_MODEL", model)
         return OpenAILLMProvider(model=configured_model, api_key=api_key)
+    if provider_key == "groq":
+        api_key = os.getenv("GROQ_API_KEY", "")
+        configured_model = os.getenv("GROQ_MODEL", model)
+        return GroqLLMProvider(model=configured_model, api_key=api_key)
     raise ProviderError(
         code=ProviderErrorCode.INVALID_REQUEST,
         message=f"unsupported llm provider_key: {provider_key}",

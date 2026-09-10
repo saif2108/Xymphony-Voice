@@ -5,6 +5,7 @@ from xymphony_providers.elevenlabs_tts import ElevenLabsTTSProvider
 from xymphony_providers.fake_llm import FakeLLMProvider
 from xymphony_providers.fake_stt import FakeSTTProvider
 from xymphony_providers.fake_tts import FakeTTSProvider
+from xymphony_providers.groq_llm import GroqLLMProvider
 from xymphony_providers.openai_llm import OpenAILLMProvider
 from xymphony_providers.registry import (
     create_llm_provider,
@@ -18,6 +19,7 @@ __all__ = [
     "FakeLLMProvider",
     "FakeSTTProvider",
     "FakeTTSProvider",
+    "GroqLLMProvider",
     "OpenAILLMProvider",
     "create_llm_provider",
     "create_stt_provider",
