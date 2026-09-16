@@ -42,8 +42,16 @@ class _MockSession:
         return None
 
 
-async def _audio(data: bytes = b"\x00\x01") -> AsyncIterator[STTAudioFrame]:
-    yield STTAudioFrame(data=data, duration_ms=10)
+async def _audio(
+    frame_count: int = 10,
+    *,
+    duration_ms: int = 10,
+) -> AsyncIterator[STTAudioFrame]:
+    for _ in range(frame_count):
+        yield STTAudioFrame(
+            data=b"\x00\x01",
+            duration_ms=duration_ms,
+        )
 
 
 @pytest.mark.asyncio
@@ -65,7 +73,33 @@ async def test_assemblyai_adapter_normalizes_transcript_chunks() -> None:
     ]
     assert [chunk.text for chunk in chunks] == ["hel", "hello"]
     assert len(session.sent) == 1
+    assert session.sent[0].duration_ms == 100
+    assert session.sent[0].data == b"\x00\x01" * 10
 
+@pytest.mark.asyncio
+async def test_assemblyai_adapter_does_not_send_chunks_below_minimum() -> None:
+    session = _MockSession()
+    provider = AssemblyAISTTProvider(
+        api_key=_SECRET,
+        model="universal-streaming",
+        session_factory=lambda _key: session,
+    )
+    request = STTRequest(provider_key="assemblyai", model="universal-streaming")
+
+    async def short_audio() -> AsyncIterator[STTAudioFrame]:
+        for _ in range(4):
+            yield STTAudioFrame(data=b"\x00\x01", duration_ms=10)
+
+    _ = [
+        chunk
+        async for chunk in provider.transcribe(
+            request,
+            short_audio(),
+            cancel=EventCancellationToken(),
+        )
+    ]
+
+    assert session.sent == []
 
 def test_normalize_auth_error_does_not_leak_key() -> None:
     normalized = _normalize_assemblyai_error(Exception(f"401 unauthorized {_SECRET}"))

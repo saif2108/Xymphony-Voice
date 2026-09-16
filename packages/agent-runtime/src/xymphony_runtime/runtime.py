@@ -97,6 +97,8 @@ class AgentRuntime:
         self._stt_audio_queues: dict[UUID, asyncio.Queue[STTAudioFrame | None]] = {}
         self._stt_tasks: dict[UUID, asyncio.Task[None]] = {}
         self._tts_cancel_tokens: dict[UUID, EventCancellationToken] = {}
+        self._finalizing_turns: set[UUID] = set()
+        self._speech_ended_turn_ids: set[UUID] = set()
         self._llm_context_assembler = LLMContextAssembler()
         self._summarizer: ConversationSummarizer | None = None
         if llm_provider is not None and llm_config is not None and summary_repository is not None:
@@ -270,44 +272,57 @@ class AgentRuntime:
         turn = self.current_turn
         if turn is None or turn.state.is_terminal:
             raise InvalidRuntimeInputError("user speech ended without an active turn")
-        self.admit_event(user_speech_ended_event(self._context, turn_id=turn.id))
-        final_transcript: str | None = None
-        if self._stt_provider is None or self._stt_config is None:
-            await self._complete_turn(turn)
-            return
+        await self._finalize_speech_turn(turn)
 
-        queue = self._stt_audio_queues.get(turn.id)
-        if queue is not None:
-            await queue.put(None)
-        task = self._stt_tasks.get(turn.id)
-        if task is not None:
-            await task
-        self._cleanup_stt_turn(turn.id)
-        if turn.state.is_terminal:
+    async def _finalize_speech_turn(self, turn: RuntimeTurn) -> None:
+        if turn.state.is_terminal or turn.id in self._finalizing_turns:
             return
+        self._finalizing_turns.add(turn.id)
+        try:
+            if turn.id not in self._speech_ended_turn_ids:
+                self._speech_ended_turn_ids.add(turn.id)
+                self.admit_event(user_speech_ended_event(self._context, turn_id=turn.id))
 
-        final_transcript = self._final_transcript_for_turn(turn.id)
-        if final_transcript and final_transcript.strip():
-            logger.info(
-                "transcript_finalized",
-                extra={
-                    "session_id": str(self._context.session_id),
-                    "turn_id": str(turn.id),
-                    "transcript_length": len(final_transcript.strip()),
-                },
-            )
-            if self._llm_provider is not None and self._llm_config is not None:
+            if self._stt_provider is None or self._stt_config is None:
+                await self._complete_turn(turn)
+                return
+
+            queue = self._stt_audio_queues.get(turn.id)
+            if queue is not None:
+                await queue.put(None)
+
+            task = self._stt_tasks.get(turn.id)
+            if task is not None and task is not asyncio.current_task():
+                await task
+
+            self._cleanup_stt_turn(turn.id)
+            if turn.state.is_terminal:
+                return
+
+            final_transcript = self._final_transcript_for_turn(turn.id)
+            if final_transcript and final_transcript.strip():
                 logger.info(
-                    "speech_transcript_forwarded",
+                    "transcript_finalized",
                     extra={
                         "session_id": str(self._context.session_id),
                         "turn_id": str(turn.id),
+                        "transcript_length": len(final_transcript.strip()),
                     },
                 )
-                await self._run_assistant_pipeline(turn, final_transcript.strip())
-                return
+                if self._llm_provider is not None and self._llm_config is not None:
+                    logger.info(
+                        "speech_transcript_forwarded",
+                        extra={
+                            "session_id": str(self._context.session_id),
+                            "turn_id": str(turn.id),
+                        },
+                    )
+                    await self._run_assistant_pipeline(turn, final_transcript.strip())
+                    return
 
-        await self._complete_turn(turn)
+            await self._complete_turn(turn)
+        finally:
+            self._finalizing_turns.discard(turn.id)
 
     async def _handle_audio_frame(self, runtime_input: RuntimeInput) -> None:
         if runtime_input.audio_data is None:
@@ -316,10 +331,10 @@ class AgentRuntime:
             raise InvalidRuntimeInputError("audio frame must include audio_duration_ms")
         turn_id = self._current_turn_id
         if turn_id is None:
-            raise InvalidRuntimeInputError("audio frame without an active turn")
+            return
         queue = self._stt_audio_queues.get(turn_id)
         if queue is None:
-            raise InvalidRuntimeInputError("audio frame without an active stt stream")
+            return
         await queue.put(
             STTAudioFrame(
                 data=runtime_input.audio_data,
@@ -660,6 +675,8 @@ class AgentRuntime:
         self._stt_audio_queues.pop(turn_id, None)
         self._stt_tasks.pop(turn_id, None)
         self._stt_cancel_tokens.pop(turn_id, None)
+        self._finalizing_turns.discard(turn_id)
+        self._speech_ended_turn_ids.discard(turn_id)
 
     async def _run_stt_stream(
         self,
@@ -693,6 +710,11 @@ class AgentRuntime:
                         confidence=chunk.confidence,
                     )
                 )
+                if chunk.is_final:
+                    await self._finalize_speech_turn(turn)
+                    return
+            if not cancel.cancelled and not self._context.is_turn_cancelled(turn.id):
+                await self._finalize_speech_turn(turn)
         except ProviderError as exc:
             if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
                 return

@@ -15,6 +15,7 @@ members = [
     "xymphony-providers",
     "xymphony-realtime",
     "xymphony-runtime-worker",
+    "xymphony-tools",
     "xymphony-voice",
 ]
 
@@ -2221,6 +2222,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "xymphony-tools"
+version = "0.1.0"
+source = { editable = "packages/tools" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "xymphony-contracts" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "xymphony-contracts", editable = "packages/contracts" },
+]
+
+[[package]]
 name = "xymphony-voice"
 version = "0.1.0"
 source = { virtual = "." }
@@ -2230,6 +2246,7 @@ dependencies = [
     { name = "xymphony-contracts" },
     { name = "xymphony-realtime" },
     { name = "xymphony-runtime-worker" },
+    { name = "xymphony-tools" },
 ]
 
 [package.dev-dependencies]
@@ -2248,6 +2265,7 @@ requires-dist = [
     { name = "xymphony-contracts", editable = "packages/contracts" },
     { name = "xymphony-realtime", editable = "packages/realtime" },
     { name = "xymphony-runtime-worker", editable = "apps/runtime-worker" },
+    { name = "xymphony-tools", editable = "packages/tools" },
 ]
 
 [package.metadata.requires-dev]

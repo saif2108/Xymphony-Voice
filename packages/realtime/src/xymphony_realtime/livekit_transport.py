@@ -105,7 +105,7 @@ class LiveKitMediaTransport:
         await self._disconnect_event.wait()
 
     async def publish_audio_output(self, frame: TransportAudioOutputFrame) -> None:
-        if self._audio_source is None:
+        if self._audio_source is None or self._state != TransportConnectionState.CONNECTED:
             return
         bytes_per_sample = 2 * frame.channels
         if bytes_per_sample <= 0 or len(frame.data) < bytes_per_sample:
@@ -117,15 +117,30 @@ class LiveKitMediaTransport:
             num_channels=frame.channels,
             samples_per_channel=samples_per_channel,
         )
-        await self._audio_source.capture_frame(lk_frame)
-        logger.info(
-            "livekit_audio_output_published",
-            extra={
-                "room": frame.room_name,
-                "chunk_index": frame.chunk_index,
-                "duration_ms": frame.duration_ms,
-            },
-        )
+        try:
+            source = self._audio_source
+            if source is None or self._state != TransportConnectionState.CONNECTED:
+                return
+            await source.capture_frame(lk_frame)
+            logger.info(
+                "livekit_audio_output_published",
+                extra={
+                    "room": frame.room_name,
+                    "chunk_index": frame.chunk_index,
+                    "duration_ms": frame.duration_ms,
+                },
+            )
+        except Exception as exc:
+            if (
+                self._state != TransportConnectionState.CONNECTED
+                or "InvalidState" in str(exc)
+            ):
+                logger.debug(
+                    "livekit_audio_output_capture_ignored_during_disconnect",
+                    extra={"error": str(exc)},
+                )
+                return
+            raise
 
     async def _setup_outgoing_audio(self, config: MediaTransportConfig) -> None:
         self._audio_source = rtc.AudioSource(self._output_sample_rate_hz, self._output_channels)

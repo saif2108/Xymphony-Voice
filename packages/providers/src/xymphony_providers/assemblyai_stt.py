@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Protocol
 
@@ -10,7 +11,8 @@ from xymphony_contracts.provider import CancellationToken, ProviderError, Provid
 from xymphony_contracts.stt import STTAudioFrame, STTRequest, STTTranscriptChunk
 
 _ASSEMBLYAI_PROVIDER_KEY = "assemblyai"
-
+_ASSEMBLYAI_MIN_CHUNK_MS = 50
+_ASSEMBLYAI_TARGET_CHUNK_MS = 100
 
 class _StreamingSession(Protocol):
     async def start(self, *, model: str, sample_rate_hz: int) -> None: ...
@@ -55,24 +57,75 @@ class AssemblyAISTTProvider:
         model = request.model or self._model
         session = self._session_factory(self._api_key)
         sample_rate_hz = 16_000
+        send_task: asyncio.Task[None] | None = None
+        send_error: BaseException | None = None
+
+        async def _send_audio() -> None:
+            nonlocal send_error
+            buffer: bytearray = bytearray()
+            buffered_duration_ms = 0
+            buffered_sample_rate_hz = sample_rate_hz
+            buffered_channels = 1
+            try:
+                async for frame in audio:
+                    if cancel.cancelled:
+                        return
+
+                    if not buffer:
+                        buffered_sample_rate_hz = frame.sample_rate_hz
+                        buffered_channels = frame.channels
+
+                    buffer.extend(frame.data)
+                    buffered_duration_ms += frame.duration_ms
+
+                    if buffered_duration_ms >= _ASSEMBLYAI_TARGET_CHUNK_MS:
+                        await session.send(
+                            STTAudioFrame(
+                                data=bytes(buffer),
+                                sample_rate_hz=buffered_sample_rate_hz,
+                                channels=buffered_channels,
+                                duration_ms=buffered_duration_ms,
+                            )
+                        )
+                        buffer.clear()
+                        buffered_duration_ms = 0
+
+                if buffered_duration_ms >= _ASSEMBLYAI_MIN_CHUNK_MS and not cancel.cancelled:
+                    await session.send(
+                        STTAudioFrame(
+                            data=bytes(buffer),
+                            sample_rate_hz=buffered_sample_rate_hz,
+                            channels=buffered_channels,
+                            duration_ms=buffered_duration_ms,
+                        )
+                    )
+                await session.finish()
+            except BaseException as exc:
+                send_error = exc
+                if hasattr(session, "_queue"):
+                    await session._queue.put(None)
+                raise
+
         try:
             await session.start(model=model, sample_rate_hz=sample_rate_hz)
-            async for frame in audio:
-                if cancel.cancelled:
-                    return
-                sample_rate_hz = frame.sample_rate_hz
-                await session.send(frame)
-            await session.finish()
+            send_task = asyncio.create_task(_send_audio())
 
             async for chunk in session.transcripts():
                 if cancel.cancelled:
                     return
                 yield chunk
+
+            if send_task is not None:
+                await send_task
         except ProviderError:
             raise
         except Exception as exc:
             raise _normalize_assemblyai_error(exc) from exc
         finally:
+            if send_task is not None and not send_task.done():
+                send_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await send_task
             await session.close()
 
 

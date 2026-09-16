@@ -8,6 +8,8 @@ import logging
 import os
 from uuid import UUID
 
+from dotenv import load_dotenv
+
 from xymphony_api.config import Settings
 from xymphony_api.db import get_session_factory
 from xymphony_contracts.media_transport import MediaTransportConfig
@@ -15,6 +17,7 @@ from xymphony_realtime import LiveKitCredentials, LiveKitMediaTransport, mint_pa
 from xymphony_runtime import RuntimeWorkerSession
 from xymphony_runtime_worker.bootstrap import build_voice_worker_from_db
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 

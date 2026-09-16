@@ -196,6 +196,16 @@ class RuntimeMediaBridge:
             return
         if self._runtime.context.is_turn_cancelled(event.turn_id):
             return
+        if (
+            self._lifecycle_state
+            in {
+                RuntimeSessionLifecycleState.STOPPING,
+                RuntimeSessionLifecycleState.STOPPED,
+                RuntimeSessionLifecycleState.FAILED,
+            }
+            or self._transport.connection_state != TransportConnectionState.CONNECTED
+        ):
+            return
         payload = event.payload
         if not isinstance(payload, TTSChunkPayload):
             return
@@ -235,7 +245,20 @@ class RuntimeMediaBridge:
                 "duration_ms": audio.duration_ms,
             },
         )
-        await self._transport.publish_audio_output(output_frame)
+        try:
+            await self._transport.publish_audio_output(output_frame)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "bridge_tts_output_publish_failed",
+                extra={
+                    "session_id": str(self._runtime.context.session_id),
+                    "turn_id": turn_key,
+                    "chunk_index": chunk_index,
+                },
+                exc_info=True,
+            )
 
     def _resolve_tts_output_audio(self) -> TTSOutputAudioResolver | None:
         if self._tts_output_resolver is not None:
@@ -327,7 +350,18 @@ class RuntimeMediaBridge:
             return
         turn = self._runtime.current_turn
         if turn is None or turn.state.is_terminal:
-            return
+            logger.info(
+                "bridge_user_speech_started",
+                extra={
+                    "session_id": str(self._runtime.context.session_id),
+                    "participant": frame.participant_identity,
+                },
+            )
+            await self._runtime.handle_input(RuntimeInput.user_speech_started())
+            turn = self._runtime.current_turn
+            if turn is None or turn.state.is_terminal:
+                return
+
         logger.info(
             "bridge_audio_frame_received",
             extra={
@@ -394,6 +428,8 @@ class RuntimeMediaBridge:
 
     async def _teardown(self, wait_tasks: list[asyncio.Task[None]]) -> None:
         await self._cancel_tasks(wait_tasks)
+        if self._background_tasks:
+            await self._cancel_tasks(set(self._background_tasks))
         if self._lifecycle_state not in {
             RuntimeSessionLifecycleState.FAILED,
             RuntimeSessionLifecycleState.STOPPING,
@@ -405,6 +441,8 @@ class RuntimeMediaBridge:
             if self._transport.connection_state != TransportConnectionState.DISCONNECTED:
                 await self._transport.disconnect()
         finally:
+            if self._background_tasks:
+                await self._cancel_tasks(set(self._background_tasks))
             if self._lifecycle_state != RuntimeSessionLifecycleState.FAILED:
                 self._transition(RuntimeSessionLifecycleState.STOPPED)
             logger.info(

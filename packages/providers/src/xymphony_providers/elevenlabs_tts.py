@@ -102,7 +102,7 @@ def _default_stream_factory(api_key: str, request: TTSRequest) -> Iterable[bytes
     if isinstance(model_id, str) and model_id:
         kwargs["model_id"] = model_id
     client = ElevenLabs(api_key=api_key)
-    stream: Iterable[bytes] = client.text_to_speech.convert_as_stream(**kwargs)
+    stream: Iterable[bytes] = client.text_to_speech.stream(**kwargs)
     return stream
 
 
