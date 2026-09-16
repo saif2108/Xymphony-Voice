@@ -8,7 +8,15 @@ dependencies = [
     "xymphony-api",
     "xymphony-providers",
     "xymphony-realtime",
+    "xymphony-tools",
 ]
+
+[tool.uv.sources]
+xymphony-agent-runtime = { workspace = true }
+xymphony-api = { workspace = true }
+xymphony-providers = { workspace = true }
+xymphony-realtime = { workspace = true }
+xymphony-tools = { workspace = true }
 
 [project.scripts]
 xymphony-runtime-worker = "xymphony_runtime_worker.main:main"

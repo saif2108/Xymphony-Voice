@@ -5,7 +5,12 @@ description = "Xymphony Voice agent runtime session orchestration"
 requires-python = ">=3.12"
 dependencies = [
     "xymphony-contracts",
+    "xymphony-tools",
 ]
+
+[tool.uv.sources]
+xymphony-contracts = { workspace = true }
+xymphony-tools = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

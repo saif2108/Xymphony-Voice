@@ -2123,10 +2123,14 @@ version = "0.1.0"
 source = { editable = "packages/agent-runtime" }
 dependencies = [
     { name = "xymphony-contracts" },
+    { name = "xymphony-tools" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "xymphony-contracts", editable = "packages/contracts" }]
+requires-dist = [
+    { name = "xymphony-contracts", editable = "packages/contracts" },
+    { name = "xymphony-tools", editable = "packages/tools" },
+]
 
 [[package]]
 name = "xymphony-api"
@@ -2211,6 +2215,7 @@ dependencies = [
     { name = "xymphony-api" },
     { name = "xymphony-providers" },
     { name = "xymphony-realtime" },
+    { name = "xymphony-tools" },
 ]
 
 [package.metadata]
@@ -2219,6 +2224,7 @@ requires-dist = [
     { name = "xymphony-api", editable = "apps/api" },
     { name = "xymphony-providers", editable = "packages/providers" },
     { name = "xymphony-realtime", editable = "packages/realtime" },
+    { name = "xymphony-tools", editable = "packages/tools" },
 ]
 
 [[package]]

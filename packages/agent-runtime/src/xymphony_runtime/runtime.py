@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from xymphony_contracts import Event
 from xymphony_contracts.enums import EventType, MessageRole, SessionEndReason, SessionStatus
 from xymphony_contracts.events import TextRange, TranscriptFramePayload
-from xymphony_contracts.llm import LLMProvider
+from xymphony_contracts.llm import LLMMessage, LLMProvider, LLMRole, LLMToolCall
 from xymphony_contracts.persistence import (
     ConversationRepository,
     ConversationSummaryRepository,
@@ -20,6 +20,7 @@ from xymphony_contracts.persistence import (
 from xymphony_contracts.provider import ProviderError
 from xymphony_contracts.session import Message
 from xymphony_contracts.stt import STTAudioFrame, STTProvider, STTRequest
+from xymphony_contracts.tools import ToolErrorCode, ToolResult
 from xymphony_contracts.tts import TTSProvider, TTSRequest
 from xymphony_runtime.cancellation import EventCancellationToken
 from xymphony_runtime.context import RuntimeContext
@@ -51,6 +52,8 @@ from xymphony_runtime.stt_config import STTRuntimeConfig
 from xymphony_runtime.summarization import ConversationSummarizer
 from xymphony_runtime.tts_config import TTSRuntimeConfig
 from xymphony_runtime.turn import RuntimeTurn
+from xymphony_tools import ToolExecutor, ToolRegistry
+from xymphony_tools.domain import ToolExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +77,15 @@ class AgentRuntime:
         session_repository: SessionRepository | None = None,
         conversation_repository: ConversationRepository | None = None,
         summary_repository: ConversationSummaryRepository | None = None,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
         self._session_repository = session_repository
         self._conversation_repository = conversation_repository
         self._summary_repository = summary_repository
+        self._tool_registry = tool_registry
+        self._tool_executor = ToolExecutor(tool_registry) if tool_registry is not None else None
         self._llm_provider = llm_provider
         self._llm_config = llm_config
         self._stt_provider = stt_provider
@@ -484,103 +490,189 @@ class AgentRuntime:
             summary_text = preparation.summary_text
             assembly_history = preparation.history_for_assembly
 
-        try:
-            request = self._llm_context_assembler.assemble(
-                history=assembly_history,
-                current_user_text=text,
-                config=self._llm_config,
-                summary_text=summary_text,
-            )
-        except ContextBudgetExceededError as exc:
-            turn.fail(error_code="context_budget_exceeded")
-            self.admit_event(
-                error_event(
-                    self._context,
-                    code="context_budget_exceeded",
-                    message=str(exc),
-                    turn_id=turn.id,
-                    retryable=False,
-                )
-            )
-            if self._current_turn_id == turn.id:
-                self._current_turn_id = None
-            logger.info(
-                "context_budget_exceeded",
-                extra={
-                    "session_id": str(self._context.session_id),
-                    "turn_id": str(turn.id),
-                    "error_message": str(exc),
-                },
-            )
-            return None
-        full_text_parts: list[str] = []
-        finish_reason = "stop"
-        logger.info(
-            "llm_started",
-            extra={
-                "session_id": str(self._context.session_id),
-                "turn_id": str(turn.id),
-                "provider_key": self._llm_config.provider_key,
-            },
+        extra_messages: list[LLMMessage] = []
+        tool_definitions = (
+            self._tool_registry.get_definitions()
+            if self._tool_registry is not None
+            else ()
         )
 
-        try:
-            async for chunk in self._llm_provider.stream(request, cancel=cancel):
-                if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
-                    return None
-                if chunk.delta:
-                    full_text_parts.append(chunk.delta)
-                    self.admit_event(
-                        llm_token_event(self._context, turn_id=turn.id, delta=chunk.delta)
-                    )
-                if chunk.finish_reason:
-                    finish_reason = chunk.finish_reason
-        except ProviderError as exc:
+        for iteration in range(self._llm_config.max_tool_iterations):
             if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
                 return None
-            turn.fail(error_code=exc.code.value)
-            self.admit_event(
-                error_event(
-                    self._context,
-                    code=exc.code.value,
-                    message=exc.message,
-                    turn_id=turn.id,
-                    retryable=exc.retryable,
+
+            try:
+                request = self._llm_context_assembler.assemble(
+                    history=assembly_history,
+                    current_user_text=text,
+                    config=self._llm_config,
+                    summary_text=summary_text,
+                    tools=tool_definitions,
+                    extra_messages=extra_messages,
                 )
-            )
-            if self._current_turn_id == turn.id:
-                self._current_turn_id = None
+            except ContextBudgetExceededError as exc:
+                turn.fail(error_code="context_budget_exceeded")
+                self.admit_event(
+                    error_event(
+                        self._context,
+                        code="context_budget_exceeded",
+                        message=str(exc),
+                        turn_id=turn.id,
+                        retryable=False,
+                    )
+                )
+                if self._current_turn_id == turn.id:
+                    self._current_turn_id = None
+                logger.info(
+                    "context_budget_exceeded",
+                    extra={
+                        "session_id": str(self._context.session_id),
+                        "turn_id": str(turn.id),
+                        "error_message": str(exc),
+                    },
+                )
+                return None
+
+            full_text_parts: list[str] = []
+            finish_reason = "stop"
+            accumulated_tool_calls: list[LLMToolCall] = []
+
             logger.info(
-                "llm_provider_error",
+                "llm_started",
                 extra={
                     "session_id": str(self._context.session_id),
                     "turn_id": str(turn.id),
-                    "error_code": exc.code.value,
-                    "provider_key": exc.provider_key,
+                    "provider_key": self._llm_config.provider_key,
+                    "iteration": iteration,
                 },
             )
-            return None
 
-        if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
-            return None
+            try:
+                async for chunk in self._llm_provider.stream(request, cancel=cancel):
+                    if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                        return None
+                    if chunk.delta:
+                        full_text_parts.append(chunk.delta)
+                        self.admit_event(
+                            llm_token_event(self._context, turn_id=turn.id, delta=chunk.delta)
+                        )
+                    if chunk.finish_reason:
+                        finish_reason = chunk.finish_reason
+                    if chunk.tool_calls:
+                        accumulated_tool_calls.extend(chunk.tool_calls)
+            except ProviderError as exc:
+                if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                    return None
+                turn.fail(error_code=exc.code.value)
+                self.admit_event(
+                    error_event(
+                        self._context,
+                        code=exc.code.value,
+                        message=exc.message,
+                        turn_id=turn.id,
+                        retryable=exc.retryable,
+                    )
+                )
+                if self._current_turn_id == turn.id:
+                    self._current_turn_id = None
+                logger.info(
+                    "llm_provider_error",
+                    extra={
+                        "session_id": str(self._context.session_id),
+                        "turn_id": str(turn.id),
+                        "error_code": exc.code.value,
+                        "provider_key": exc.provider_key,
+                    },
+                )
+                return None
 
-        full_text = "".join(full_text_parts)
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return None
+
+            if not accumulated_tool_calls:
+                full_text = "".join(full_text_parts)
+                self.admit_event(
+                    llm_response_event(
+                        self._context,
+                        turn_id=turn.id,
+                        text=full_text,
+                        finish_reason=finish_reason,
+                    )
+                )
+                logger.info(
+                    "llm_completed",
+                    extra={
+                        "session_id": str(self._context.session_id),
+                        "turn_id": str(turn.id),
+                    },
+                )
+                return full_text
+
+            tool_results: list[ToolResult] = []
+            for tool_call in accumulated_tool_calls:
+                if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                    return None
+
+                if self._tool_executor is not None:
+                    exec_context = ToolExecutionContext(
+                        tool_call_id=tool_call.id,
+                        session_id=str(self._context.session_id),
+                    )
+                    res = await self._tool_executor.execute(
+                        tool_call,
+                        context=exec_context,
+                        cancel=cancel,
+                    )
+                else:
+                    res = ToolResult.failure_result(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        error=(
+                            f"Tool '{tool_call.name}' cannot be executed: "
+                            "no tool registry is configured."
+                        ),
+                        error_code=ToolErrorCode.TOOL_NOT_FOUND,
+                    )
+                tool_results.append(res)
+
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return None
+
+            assistant_msg = LLMMessage(
+                role=LLMRole.ASSISTANT,
+                content="".join(full_text_parts),
+                tool_calls=tuple(accumulated_tool_calls),
+            )
+            extra_messages.append(assistant_msg)
+
+            for res in tool_results:
+                tool_msg = LLMMessage(
+                    role=LLMRole.TOOL,
+                    content=res.output,
+                    tool_call_id=res.tool_call_id,
+                )
+                extra_messages.append(tool_msg)
+
+        turn.fail(error_code="tool_loop_limit_exceeded")
         self.admit_event(
-            llm_response_event(
+            error_event(
                 self._context,
+                code="tool_loop_limit_exceeded",
+                message="Tool loop iteration limit exceeded",
                 turn_id=turn.id,
-                text=full_text,
-                finish_reason=finish_reason,
+                retryable=False,
             )
         )
+        if self._current_turn_id == turn.id:
+            self._current_turn_id = None
         logger.info(
-            "llm_completed",
+            "tool_loop_limit_exceeded",
             extra={
                 "session_id": str(self._context.session_id),
                 "turn_id": str(turn.id),
             },
         )
-        return full_text
+        return None
 
     async def _run_tts_stream(
         self,

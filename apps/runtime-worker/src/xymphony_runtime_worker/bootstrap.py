@@ -50,6 +50,7 @@ from xymphony_runtime import (
     STTRuntimeConfig,
     TTSRuntimeConfig,
 )
+from xymphony_tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +331,7 @@ def build_voice_worker(
     llm_provider: LLMProvider | None = None,
     stt_provider: STTProvider | None = None,
     tts_provider: TTSProvider | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> VoiceWorkerComponents:
     if session.agent_version_id != agent_version.id:
         msg = "session is not pinned to the supplied agent version"
@@ -355,6 +357,7 @@ def build_voice_worker(
         session_repository=session_repository,
         conversation_repository=conversation_repository,
         summary_repository=summary_repository,
+        tool_registry=tool_registry,
     )
 
     resolved_transport = transport or LiveKitMediaTransport()
@@ -390,6 +393,7 @@ def build_voice_worker_from_db(
     llm_provider: LLMProvider | None = None,
     stt_provider: STTProvider | None = None,
     tts_provider: TTSProvider | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> VoiceWorkerComponents:
     session, agent_version = load_session_bundle(sql, session_id)
     session_repo = cast(
@@ -423,4 +427,5 @@ def build_voice_worker_from_db(
         llm_provider=llm_provider,
         stt_provider=stt_provider,
         tts_provider=tts_provider,
+        tool_registry=tool_registry,
     )

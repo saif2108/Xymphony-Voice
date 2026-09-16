@@ -1,4 +1,7 @@
-"""Tests for live voice pipeline: in-call STT finalization, consecutive turns, and teardown resilience."""
+"""Tests for live voice pipeline.
+
+Covers in-call STT finalization, consecutive turns, and teardown resilience.
+"""
 
 from __future__ import annotations
 
@@ -53,7 +56,7 @@ class _StreamingSTTProvider:
 
 @pytest.mark.asyncio
 async def test_live_speech_processing_runs_during_active_connection() -> None:
-    """STT is_final triggers LLM, TTS, and audio publication while still connected (no ENDED event)."""
+    """STT is_final triggers LLM, TTS, and audio publication while still connected."""
     stt = _StreamingSTTProvider([
         [
             STTTranscriptChunk(text="what time is it", is_final=True),

@@ -18,6 +18,7 @@ from xymphony_contracts.enums import UsageUnit
 from xymphony_contracts.llm import (
     CancellationToken,
     LLMRequest,
+    LLMRole,
     LLMStreamChunk,
     LLMToolCall,
     ProviderError,
@@ -182,12 +183,35 @@ class OpenAILLMProvider:
             raise _normalize_openai_error(exc) from exc
 
 
-def _to_openai_messages(request: LLMRequest) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
+def _to_openai_messages(request: LLMRequest) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
     if request.system:
         messages.append({"role": "system", "content": request.system})
     for message in request.messages:
-        messages.append({"role": message.role.value, "content": message.content})
+        if message.role == LLMRole.ASSISTANT and message.tool_calls:
+            messages.append({
+                "role": "assistant",
+                "content": message.content if message.content else None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": tc.arguments,
+                        },
+                    }
+                    for tc in message.tool_calls
+                ],
+            })
+        elif message.role == LLMRole.TOOL:
+            messages.append({
+                "role": "tool",
+                "content": message.content,
+                "tool_call_id": message.tool_call_id or "",
+            })
+        else:
+            messages.append({"role": message.role.value, "content": message.content})
     return messages
 
 

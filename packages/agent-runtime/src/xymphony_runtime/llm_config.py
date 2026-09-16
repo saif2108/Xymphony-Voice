@@ -18,3 +18,4 @@ class LLMRuntimeConfig:
     temperature: float | None = None
     max_output_tokens: int | None = None
     top_p: float | None = None
+    max_tool_iterations: int = 4

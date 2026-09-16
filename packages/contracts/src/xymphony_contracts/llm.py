@@ -34,11 +34,21 @@ class LLMRole(StrEnum):
     TOOL = "tool"
 
 
+class LLMToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    arguments: str = Field(default="{}", max_length=16_000)
+
+
 class LLMMessage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     role: LLMRole
-    content: str = Field(min_length=0, max_length=32_000)
+    content: str = Field(default="", min_length=0, max_length=32_000)
+    tool_call_id: str | None = None
+    tool_calls: tuple[LLMToolCall, ...] = ()
 
 
 class LLMToolDefinition(BaseModel):
@@ -47,14 +57,6 @@ class LLMToolDefinition(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=4000)
     parameters: dict[str, JsonValue] = Field(default_factory=dict)
-
-
-class LLMToolCall(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str = Field(min_length=1, max_length=128)
-    name: str = Field(min_length=1, max_length=128)
-    arguments: str = Field(default="{}", max_length=16_000)
 
 
 class LLMRequest(BaseModel):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from xymphony_contracts.llm import LLMMessage, LLMRequest, LLMRole
+from xymphony_contracts.llm import LLMMessage, LLMRequest, LLMRole, LLMToolDefinition
 from xymphony_contracts.session import Message
 from xymphony_runtime.context_budget import ContextBudgetPolicy, build_system_with_summary
 from xymphony_runtime.conversation import committed_messages_to_llm
@@ -32,6 +32,8 @@ class LLMContextAssembler:
         current_user_text: str,
         config: LLMRuntimeConfig,
         summary_text: str | None = None,
+        tools: Sequence[LLMToolDefinition] = (),
+        extra_messages: Sequence[LLMMessage] = (),
     ) -> LLMRequest:
         llm_history = committed_messages_to_llm(tuple(history))
         effective_summary = summary_text
@@ -63,7 +65,9 @@ class LLMContextAssembler:
             messages=(
                 *llm_history,
                 LLMMessage(role=LLMRole.USER, content=current_user_text),
+                *extra_messages,
             ),
+            tools=tuple(tools),
             system=build_system_with_summary(config.system_instructions, effective_summary),
             params=config.params,
             temperature=config.temperature,
