@@ -11,6 +11,16 @@ from xymphony_tools.errors import (
     ToolNotFoundError,
 )
 from xymphony_tools.executor import ToolExecutor
+from xymphony_tools.handlers import (
+    calculate,
+    create_calculator_tool,
+    create_customer_lookup_tool,
+    create_weather_lookup_tool,
+    get_builtin_tools,
+    lookup_customer,
+    lookup_weather,
+    register_builtin_tools,
+)
 from xymphony_tools.registry import ToolRegistry
 from xymphony_tools.validation import validate_tool_arguments
 
@@ -28,5 +38,13 @@ __all__ = [
     "ToolNotFoundError",
     "ToolRegistry",
     "ToolResult",
+    "calculate",
+    "create_calculator_tool",
+    "create_customer_lookup_tool",
+    "create_weather_lookup_tool",
+    "get_builtin_tools",
+    "lookup_customer",
+    "lookup_weather",
+    "register_builtin_tools",
     "validate_tool_arguments",
 ]

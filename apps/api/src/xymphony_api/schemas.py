@@ -12,6 +12,8 @@ from xymphony_contracts import (
     LLMBinding,
     Message,
     STTBinding,
+    ToolDefinition,
+    ToolType,
     TTSBinding,
 )
 
@@ -97,3 +99,40 @@ class LiveKitTokenResponse(BaseModel):
 ProjectId = UUID
 AgentId = UUID
 VersionId = UUID
+
+
+# --- Tool Management schemas ---
+
+
+class ToolCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=4000)
+    tool_type: ToolType = ToolType.FUNCTION
+    parameters: dict[str, object] = Field(
+        default_factory=lambda: {"type": "object", "properties": {}}
+    )
+    config: dict[str, object] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class ToolUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=4000)
+    tool_type: ToolType | None = None
+    parameters: dict[str, object] | None = None
+    config: dict[str, object] | None = None
+    enabled: bool | None = None
+
+
+class ToolListResponse(BaseModel):
+    items: list[ToolDefinition]
+    next_cursor: str | None = None
+
+
+class VersionToolListResponse(BaseModel):
+    items: list[ToolDefinition]
+

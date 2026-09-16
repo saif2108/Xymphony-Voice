@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from xymphony_api.config import Settings, get_settings
 from xymphony_api.db import session_scope
 from xymphony_api.errors import AppError
-from xymphony_api.services import AgentService, SessionService
+from xymphony_api.services import AgentService, SessionService, ToolService
 
 
 def get_db_session(settings: Settings = Depends(get_settings)) -> Generator[Session, None, None]:
@@ -21,6 +21,10 @@ def get_agent_service(session: Session = Depends(get_db_session)) -> AgentServic
 
 def get_session_service(session: Session = Depends(get_db_session)) -> SessionService:
     return SessionService(session)
+
+
+def get_tool_service(session: Session = Depends(get_db_session)) -> ToolService:
+    return ToolService(session)
 
 
 def pagination_limit(limit: int = Query(default=20, ge=1, le=100)) -> int:

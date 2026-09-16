@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -116,6 +116,9 @@ class AgentVersionRow(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     agent: Mapped[AgentRow] = relationship(back_populates="versions")
+    tool_associations: Mapped[list[AgentVersionToolRow]] = relationship(
+        back_populates="agent_version", cascade="all, delete-orphan"
+    )
 
 
 class SessionRow(Base):
@@ -230,3 +233,74 @@ class ConversationSummaryRow(Base):
     )
 
     session: Mapped[SessionRow] = relationship(back_populates="summary")
+
+
+class ToolDefinitionRow(Base):
+    """A tool definition managed via the control plane, scoped to a project."""
+
+    __tablename__ = "tool_definitions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_tool_defs_project_name"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    tool_type: Mapped[str] = mapped_column(String(32), nullable=False, default="function")
+    parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{\"type\": \"object\", \"properties\": {}}'::jsonb")
+    )
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    version_associations: Mapped[list[AgentVersionToolRow]] = relationship(
+        back_populates="tool_definition", cascade="all, delete-orphan"
+    )
+
+
+class AgentVersionToolRow(Base):
+    """Many-to-many association between agent versions and tool definitions."""
+
+    __tablename__ = "agent_version_tools"
+
+    agent_version_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("agent_versions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    tool_definition_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("tool_definitions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    agent_version: Mapped[AgentVersionRow] = relationship(back_populates="tool_associations")
+    tool_definition: Mapped[ToolDefinitionRow] = relationship(back_populates="version_associations")

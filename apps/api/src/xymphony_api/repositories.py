@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 from xymphony_api.models import (
     AgentRow,
     AgentVersionRow,
+    AgentVersionToolRow,
     ConversationMessageRow,
     ConversationSummaryRow,
     OrganizationRow,
     ProjectRow,
     SessionRow,
+    ToolDefinitionRow,
 )
 
 
@@ -244,3 +246,115 @@ class ConversationSummaryRepository:
         existing.created_at = row.created_at
         self._session.flush()
         return existing
+
+
+class ToolDefinitionRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, row: ToolDefinitionRow) -> ToolDefinitionRow:
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(self, tool_id: UUID) -> ToolDefinitionRow | None:
+        return self._session.get(ToolDefinitionRow, tool_id)
+
+    def get_in_project(
+        self, *, project_id: UUID, organization_id: UUID, tool_id: UUID
+    ) -> ToolDefinitionRow | None:
+        stmt = select(ToolDefinitionRow).where(
+            ToolDefinitionRow.id == tool_id,
+            ToolDefinitionRow.project_id == project_id,
+            ToolDefinitionRow.organization_id == organization_id,
+        )
+        return self._session.scalar(stmt)
+
+    def get_by_name_in_project(
+        self, *, project_id: UUID, organization_id: UUID, name: str
+    ) -> ToolDefinitionRow | None:
+        stmt = select(ToolDefinitionRow).where(
+            ToolDefinitionRow.project_id == project_id,
+            ToolDefinitionRow.organization_id == organization_id,
+            ToolDefinitionRow.name == name,
+        )
+        return self._session.scalar(stmt)
+
+    def list_in_project(
+        self,
+        *,
+        project_id: UUID,
+        organization_id: UUID,
+        limit: int,
+        cursor: UUID | None,
+    ) -> list[ToolDefinitionRow]:
+        stmt = select(ToolDefinitionRow).where(
+            ToolDefinitionRow.project_id == project_id,
+            ToolDefinitionRow.organization_id == organization_id,
+        )
+        if cursor is not None:
+            cursor_row = self.get(cursor)
+            if cursor_row is not None:
+                stmt = stmt.where(
+                    (ToolDefinitionRow.created_at < cursor_row.created_at)
+                    | (
+                        (ToolDefinitionRow.created_at == cursor_row.created_at)
+                        & (ToolDefinitionRow.id < cursor_row.id)
+                    )
+                )
+        stmt = stmt.order_by(
+            ToolDefinitionRow.created_at.desc(), ToolDefinitionRow.id.desc()
+        ).limit(limit)
+        return list(self._session.scalars(stmt).all())
+
+    def delete(self, row: ToolDefinitionRow) -> None:
+        self._session.delete(row)
+        self._session.flush()
+
+
+class AgentVersionToolRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def attach(
+        self, *, agent_version_id: UUID, tool_definition_id: UUID, enabled: bool = True
+    ) -> AgentVersionToolRow:
+        existing = self.get(agent_version_id=agent_version_id, tool_definition_id=tool_definition_id)
+        if existing is not None:
+            existing.enabled = enabled
+            self._session.flush()
+            return existing
+        row = AgentVersionToolRow(
+            agent_version_id=agent_version_id,
+            tool_definition_id=tool_definition_id,
+            enabled=enabled,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(
+        self, *, agent_version_id: UUID, tool_definition_id: UUID
+    ) -> AgentVersionToolRow | None:
+        return self._session.get(
+            AgentVersionToolRow, (agent_version_id, tool_definition_id)
+        )
+
+    def detach(self, *, agent_version_id: UUID, tool_definition_id: UUID) -> bool:
+        row = self.get(agent_version_id=agent_version_id, tool_definition_id=tool_definition_id)
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.flush()
+        return True
+
+    def list_for_version(
+        self, *, agent_version_id: UUID
+    ) -> list[AgentVersionToolRow]:
+        stmt = (
+            select(AgentVersionToolRow)
+            .where(AgentVersionToolRow.agent_version_id == agent_version_id)
+            .order_by(AgentVersionToolRow.created_at.asc())
+        )
+        return list(self._session.scalars(stmt).all())
+

@@ -14,6 +14,7 @@ from xymphony_contracts.enums import (
     MessageStatus,
     SessionEndReason,
     SessionStatus,
+    ToolType,
     TurnStatus,
     UsageUnit,
 )
@@ -64,6 +65,7 @@ from xymphony_contracts.stt import (
     STTTranscriptChunk,
 )
 from xymphony_contracts.summary import ConversationSummary
+from xymphony_contracts.tool_definition import ToolDefinition
 from xymphony_contracts.tools import ToolErrorCode, ToolResult
 from xymphony_contracts.tts import (
     TTSProvider,
@@ -132,8 +134,10 @@ __all__ = [
     "TTSResponse",
     "TTSStreamChunk",
     "TTSTextRange",
+    "ToolDefinition",
     "ToolErrorCode",
     "ToolResult",
+    "ToolType",
     "TranscriptFramePayload",
     "Turn",
     "TurnStatus",

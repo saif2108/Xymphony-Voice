@@ -1,9 +1,10 @@
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
-
+from xymphony_api.routes.tools import router as tools_router
 from xymphony_api.config import get_settings
 from xymphony_api.errors import register_exception_handlers
 from xymphony_api.logging import configure_logging
@@ -27,6 +28,16 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
     app = FastAPI(title="Xymphony Voice API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router)
@@ -34,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions_router)
     app.include_router(dev_livekit_router)
     app.include_router(dev_pages_router)
+    app.include_router(tools_router)
     return app
 
 
