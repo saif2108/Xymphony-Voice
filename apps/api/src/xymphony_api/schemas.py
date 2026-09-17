@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -136,3 +137,34 @@ class ToolListResponse(BaseModel):
 class VersionToolListResponse(BaseModel):
     items: list[ToolDefinition]
 
+
+class KnowledgeBaseCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class DocumentCreateRequest(BaseModel):
+    name: str
+    content: str
+
+
+class KnowledgeBaseDocumentResponse(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
+
+
+class KnowledgeBaseDocumentListResponse(BaseModel):
+    items: list[KnowledgeBaseDocumentResponse]
+
+
+class KnowledgeBaseResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    description: str
+    created_at: datetime
+
+
+class KnowledgeBaseListResponse(BaseModel):
+    items: list[KnowledgeBaseResponse]

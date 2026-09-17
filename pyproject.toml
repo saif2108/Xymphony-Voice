@@ -23,6 +23,7 @@ members = [
     "packages/realtime",
     "packages/agent-runtime",
     "packages/providers",
+    "packages/rag",
     "apps/api",
     "apps/runtime-worker",
 ]
@@ -54,6 +55,7 @@ pythonpath = [
     "packages/realtime/src",
     "packages/agent-runtime/src",
     "packages/providers/src",
+    "packages/rag/src",
     "apps/api/src",
     "apps/runtime-worker/src",
     ".",
@@ -74,6 +76,7 @@ src = [
     "packages/realtime/src",
     "packages/agent-runtime/src",
     "packages/providers/src",
+    "packages/rag/src",
     "apps/api/src",
     "apps/runtime-worker/src",
     "tests",
@@ -90,7 +93,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "packages/contracts/src,packages/tools/src,packages/realtime/src,packages/agent-runtime/src,packages/providers/src,apps/api/src,apps/runtime-worker/src"
+mypy_path = "packages/contracts/src,packages/tools/src,packages/realtime/src,packages/agent-runtime/src,packages/providers/src,packages/rag/src,apps/api/src,apps/runtime-worker/src"
 packages = [
     "xymphony_contracts",
     "xymphony_tools",

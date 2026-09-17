@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from xymphony_api.errors import ConflictError, NotFoundError
@@ -14,12 +15,23 @@ from xymphony_api.mapping import (
     tool_definition_to_contract,
     version_to_contract,
 )
-from xymphony_api.models import AgentRow, AgentVersionRow, ProjectRow, SessionRow, ToolDefinitionRow
+from xymphony_api.models import (
+    AgentRow,
+    AgentVersionRow,
+    DocumentRow,
+    KnowledgeBaseRow,
+    ProjectRow,
+    SessionRow,
+    ToolDefinitionRow,
+)
 from xymphony_api.repositories import (
     AgentRepository,
     AgentVersionRepository,
     AgentVersionToolRepository,
     ConversationRepository,
+    DocumentChunkRepository,
+    DocumentRepository,
+    KnowledgeBaseRepository,
     SessionRepository,
     TenantRepository,
     ToolDefinitionRepository,
@@ -29,6 +41,8 @@ from xymphony_api.schemas import (
     AgentUpdateRequest,
     AgentVersionCreateRequest,
     AgentVersionUpdateRequest,
+    DocumentCreateRequest,
+    KnowledgeBaseCreateRequest,
     SessionCreateRequest,
     ToolCreateRequest,
     ToolUpdateRequest,
@@ -42,6 +56,8 @@ from xymphony_contracts import (
     ToolDefinition,
 )
 from xymphony_contracts.session import Session as SessionContract
+from xymphony_rag.chunking import chunk_text
+from xymphony_rag.embeddings import LocalEmbeddingProvider
 
 logger = get_logger(__name__)
 
@@ -614,3 +630,146 @@ class ToolService:
             agent_version_id=version_row.id,
         )
         return [tool_definition_to_contract(a.tool_definition) for a in assocs]
+
+
+class KnowledgeBaseService:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self._tenants = TenantRepository(session)
+        self._knowledge_bases = KnowledgeBaseRepository(session)
+
+    def require_project(self, project_id: UUID) -> ProjectRow:
+        project = self._tenants.get_project(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        return project
+
+    def create_knowledge_base(
+        self,
+        project_id: UUID,
+        body: KnowledgeBaseCreateRequest,
+    ) -> KnowledgeBaseRow:
+        project = self.require_project(project_id)
+
+        row = self._knowledge_bases.create(
+            organization_id=project.organization_id,
+            project_id=project.id,
+            name=body.name,
+            description=body.description,
+        )
+
+        logger.info(
+            "knowledge_base_created",
+            extra={
+                "knowledge_base_id": str(row.id),
+                "project_id": str(project.id),
+            },
+        )
+        return row
+
+    def list_knowledge_bases(
+        self,
+        project_id: UUID,
+    ) -> list[KnowledgeBaseRow]:
+        project = self.require_project(project_id)
+
+        return self._knowledge_bases.list_in_project(
+            project_id=project.id,
+            organization_id=project.organization_id,
+        )
+
+
+class DocumentService:
+    """Control-plane document management for knowledge bases."""
+
+    def __init__(self, session: Session) -> None:
+        self._knowledge_bases = KnowledgeBaseRepository(session)
+        self._documents = DocumentRepository(session)
+        self._ingestion = DocumentIngestionService(session)
+
+    def require_knowledge_base(self, knowledge_base_id: UUID) -> KnowledgeBaseRow:
+        knowledge_base = self._knowledge_bases.get(knowledge_base_id)
+        if knowledge_base is None:
+            raise NotFoundError("Knowledge base not found")
+        return knowledge_base
+
+    def create_document(
+        self,
+        knowledge_base_id: UUID,
+        body: DocumentCreateRequest,
+    ) -> DocumentRow:
+        knowledge_base = self.require_knowledge_base(knowledge_base_id)
+
+        document = self._documents.create(
+            knowledge_base_id=knowledge_base.id,
+            name=body.name,
+            content=body.content,
+        )
+
+        self._ingestion.ingest_document(document_id=document.id)
+
+        logger.info(
+            "document_created",
+            extra={
+                "document_id": str(document.id),
+                "knowledge_base_id": str(knowledge_base.id),
+            },
+        )
+
+        return document
+
+    def list_documents(
+        self,
+        knowledge_base_id: UUID,
+    ) -> list[DocumentRow]:
+        knowledge_base = self.require_knowledge_base(knowledge_base_id)
+
+        return self._documents.list_in_knowledge_base(
+            knowledge_base_id=knowledge_base.id,
+        )
+
+
+class DocumentIngestionService:
+    def __init__(self, session: Session) -> None:
+        self._documents = DocumentRepository(session)
+        self._chunks = DocumentChunkRepository(session)
+        self._embeddings = LocalEmbeddingProvider()
+
+    def ingest_document(
+        self,
+        *,
+        document_id: UUID,
+    ) -> DocumentRow:
+        document = self._documents.get(document_id)
+        if document is None:
+            raise NotFoundError("Document not found")
+
+        # Make ingestion idempotent: replace existing chunks if the
+        # document is ingested again.
+        self._chunks.delete_for_document(document_id=document.id)
+
+        chunks = chunk_text(document.content)
+
+        if not chunks:
+            return document
+
+        embeddings = self._embeddings.embed_many(chunks)
+
+        chunk_data = [
+            (index, content, embedding)
+            for index, (content, embedding) in enumerate(zip(chunks, embeddings, strict=True))
+        ]
+
+        self._chunks.create_many(
+            document_id=document.id,
+            chunks=chunk_data,
+        )
+
+        # Populate PostgreSQL full-text search vectors.
+        for chunk in self._chunks.list_for_document(document_id=document.id):
+            chunk.search_vector = func.to_tsvector(
+                "english",
+                chunk.content,
+            )
+
+        return document

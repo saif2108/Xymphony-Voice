@@ -4,15 +4,18 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
-from xymphony_api.routes.tools import router as tools_router
+
 from xymphony_api.config import get_settings
 from xymphony_api.errors import register_exception_handlers
 from xymphony_api.logging import configure_logging
 from xymphony_api.routes.agents import router as agents_router
 from xymphony_api.routes.dev_livekit import router as dev_livekit_router
 from xymphony_api.routes.dev_pages import router as dev_pages_router
+from xymphony_api.routes.documents import router as documents_router
 from xymphony_api.routes.health import router as health_router
+from xymphony_api.routes.knowledge_bases import router as knowledge_bases_router
 from xymphony_api.routes.sessions import router as sessions_router
+from xymphony_api.routes.tools import router as tools_router
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -46,6 +49,8 @@ def create_app() -> FastAPI:
     app.include_router(dev_livekit_router)
     app.include_router(dev_pages_router)
     app.include_router(tools_router)
+    app.include_router(knowledge_bases_router)
+    app.include_router(documents_router)
     return app
 
 

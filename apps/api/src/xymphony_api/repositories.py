@@ -7,10 +7,14 @@ from sqlalchemy.orm import Session
 
 from xymphony_api.models import (
     AgentRow,
+    AgentVersionKnowledgeBaseRow,
     AgentVersionRow,
     AgentVersionToolRow,
     ConversationMessageRow,
     ConversationSummaryRow,
+    DocumentChunkRow,
+    DocumentRow,
+    KnowledgeBaseRow,
     OrganizationRow,
     ProjectRow,
     SessionRow,
@@ -358,3 +362,180 @@ class AgentVersionToolRepository:
         )
         return list(self._session.scalars(stmt).all())
 
+
+class KnowledgeBaseRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(
+        self,
+        *,
+        organization_id: UUID,
+        project_id: UUID,
+        name: str,
+        description: str = "",
+    ) -> KnowledgeBaseRow:
+        row = KnowledgeBaseRow(
+            organization_id=organization_id,
+            project_id=project_id,
+            name=name,
+            description=description,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(self, knowledge_base_id: UUID) -> KnowledgeBaseRow | None:
+        return self._session.get(KnowledgeBaseRow, knowledge_base_id)
+
+    def list_in_project(
+        self,
+        *,
+        project_id: UUID,
+        organization_id: UUID,
+    ) -> list[KnowledgeBaseRow]:
+        stmt = (
+            select(KnowledgeBaseRow)
+            .where(
+                KnowledgeBaseRow.project_id == project_id,
+                KnowledgeBaseRow.organization_id == organization_id,
+            )
+            .order_by(KnowledgeBaseRow.created_at.desc())
+        )
+        return list(self._session.scalars(stmt).all())
+
+
+class DocumentRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(
+        self,
+        *,
+        knowledge_base_id: UUID,
+        name: str,
+        content: str,
+    ) -> DocumentRow:
+        row = DocumentRow(
+            knowledge_base_id=knowledge_base_id,
+            name=name,
+            content=content,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(self, document_id: UUID) -> DocumentRow | None:
+        return self._session.get(DocumentRow, document_id)
+
+    def list_in_knowledge_base(
+        self,
+        *,
+        knowledge_base_id: UUID,
+    ) -> list[DocumentRow]:
+        stmt = (
+            select(DocumentRow)
+            .where(DocumentRow.knowledge_base_id == knowledge_base_id)
+            .order_by(DocumentRow.created_at.desc())
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def delete(self, row: DocumentRow) -> None:
+        self._session.delete(row)
+        self._session.flush()
+
+
+class DocumentChunkRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create_many(
+        self,
+        *,
+        document_id: UUID,
+        chunks: list[tuple[int, str, list[float]]],
+    ) -> list[DocumentChunkRow]:
+        rows = [
+            DocumentChunkRow(
+                document_id=document_id,
+                chunk_index=chunk_index,
+                content=content,
+                embedding=embedding,
+            )
+            for chunk_index, content, embedding in chunks
+        ]
+        self._session.add_all(rows)
+        self._session.flush()
+        return rows
+
+    def list_for_document(
+        self,
+        *,
+        document_id: UUID,
+    ) -> list[DocumentChunkRow]:
+        stmt = (
+            select(DocumentChunkRow)
+            .where(DocumentChunkRow.document_id == document_id)
+            .order_by(DocumentChunkRow.chunk_index.asc())
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def delete_for_document(self, *, document_id: UUID) -> None:
+        stmt = select(DocumentChunkRow).where(DocumentChunkRow.document_id == document_id)
+        for row in self._session.scalars(stmt).all():
+            self._session.delete(row)
+        self._session.flush()
+
+
+class AgentVersionKnowledgeBaseRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def attach(
+        self,
+        *,
+        agent_version_id: UUID,
+        knowledge_base_id: UUID,
+    ) -> AgentVersionKnowledgeBaseRow:
+        existing = self.get(
+            agent_version_id=agent_version_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+        if existing is not None:
+            return existing
+
+        row = AgentVersionKnowledgeBaseRow(
+            agent_version_id=agent_version_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(
+        self,
+        *,
+        agent_version_id: UUID,
+        knowledge_base_id: UUID,
+    ) -> AgentVersionKnowledgeBaseRow | None:
+        return self._session.get(
+            AgentVersionKnowledgeBaseRow,
+            (agent_version_id, knowledge_base_id),
+        )
+
+    def detach(
+        self,
+        *,
+        agent_version_id: UUID,
+        knowledge_base_id: UUID,
+    ) -> bool:
+        row = self.get(
+            agent_version_id=agent_version_id,
+            knowledge_base_id=knowledge_base_id,
+        )
+        if row is None:
+            return False
+
+        self._session.delete(row)
+        self._session.flush()
+        return True
