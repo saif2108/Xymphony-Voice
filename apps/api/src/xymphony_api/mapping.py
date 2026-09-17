@@ -10,6 +10,7 @@ from xymphony_api.models import (
 from xymphony_contracts import (
     Agent,
     AgentStatus,
+    AgentToolBinding,
     AgentVersion,
     AgentVersionStatus,
     Channel,
@@ -57,6 +58,7 @@ def version_to_contract(row: AgentVersionRow) -> AgentVersion:
         llm=LLMBinding.model_validate(row.llm),
         stt=STTBinding.model_validate(row.stt),
         tts=TTSBinding.model_validate(row.tts),
+        tools=tuple(AgentToolBinding.model_validate(t) for t in (row.tools or ())),
         config_hash=row.config_hash,
         created_by=row.created_by,
         created_at=row.created_at,

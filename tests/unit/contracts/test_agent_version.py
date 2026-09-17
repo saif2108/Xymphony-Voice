@@ -91,5 +91,46 @@ def test_compiled_system_prompt_strips_surrounding_whitespace() -> None:
     version = make_agent_version(
         instructions="  Answer billing questions.  ",
         personality="  Friendly.  ",
-)
+    )
     assert version.compiled_system_prompt() == "Friendly.\n\nAnswer billing questions."
+
+
+def test_agent_version_default_tools_empty() -> None:
+    version = make_agent_version()
+    assert version.tools == ()
+
+
+def test_agent_version_rejects_duplicate_tool_names() -> None:
+    from xymphony_contracts import AgentToolBinding
+
+    with pytest.raises(ValidationError) as exc_info:
+        make_agent_version(
+            tools=(
+                AgentToolBinding(tool_name="web_search"),
+                AgentToolBinding(tool_name="web_search", enabled=False),
+            )
+        )
+    assert "duplicate tool binding: web_search" in str(exc_info.value)
+
+
+def test_config_hash_changes_with_tools() -> None:
+    from xymphony_contracts import AgentToolBinding
+
+    a = make_agent_version()
+    b = make_agent_version(
+        tools=(AgentToolBinding(tool_name="search"),)
+    )
+    c = make_agent_version(
+        tools=(AgentToolBinding(tool_name="search", enabled=False),)
+    )
+    assert a.compute_config_hash() != b.compute_config_hash()
+    assert b.compute_config_hash() != c.compute_config_hash()
+
+
+def test_config_hash_stable_with_tools() -> None:
+    from xymphony_contracts import AgentToolBinding
+
+    a = make_agent_version(tools=(AgentToolBinding(tool_name="search"),))
+    b = make_agent_version(tools=(AgentToolBinding(tool_name="search"),))
+    assert a.compute_config_hash() == b.compute_config_hash()
+

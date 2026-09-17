@@ -104,3 +104,70 @@ def test_second_version_increments(client: TestClient, project_id: str) -> None:
     )
     assert first.json()["version_n"] == 1
     assert second.json()["version_n"] == 2
+
+
+def test_create_and_patch_version_with_tools(client: TestClient, project_id: str) -> None:
+    agent_id = _create_agent(client, project_id)
+    created = client.post(
+        f"/v1/projects/{project_id}/agents/{agent_id}/versions",
+        json={
+            "instructions": "Tools agent",
+            "tools": [{"tool_name": "lookup", "enabled": True}],
+            **BINDING,
+        },
+    )
+    assert created.status_code == 201
+    version = created.json()
+    assert len(version["tools"]) == 1
+    assert version["tools"][0]["tool_name"] == "lookup"
+    assert version["tools"][0]["enabled"] is True
+
+    # Patch tools
+    version_id = version["id"]
+    patched = client.patch(
+        f"/v1/projects/{project_id}/agents/{agent_id}/versions/{version_id}",
+        json={
+            "tools": [
+                {"tool_name": "lookup", "enabled": False},
+                {"tool_name": "calc", "enabled": True},
+            ]
+        },
+    )
+    assert patched.status_code == 200
+    assert len(patched.json()["tools"]) == 2
+    assert patched.json()["tools"][0]["tool_name"] == "lookup"
+    assert patched.json()["tools"][0]["enabled"] is False
+    assert patched.json()["tools"][1]["tool_name"] == "calc"
+    assert patched.json()["tools"][1]["enabled"] is True
+
+
+def test_duplicate_tools_rejected_in_api(client: TestClient, project_id: str) -> None:
+    agent_id = _create_agent(client, project_id)
+    response = client.post(
+        f"/v1/projects/{project_id}/agents/{agent_id}/versions",
+        json={
+            "instructions": "Dup tools",
+            "tools": [
+                {"tool_name": "lookup", "enabled": True},
+                {"tool_name": "lookup", "enabled": False},
+            ],
+            **BINDING,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_tool_with_secrets_rejected_in_api(client: TestClient, project_id: str) -> None:
+    agent_id = _create_agent(client, project_id)
+    response = client.post(
+        f"/v1/projects/{project_id}/agents/{agent_id}/versions",
+        json={
+            "instructions": "Secret tools",
+            "tools": [
+                {"tool_name": "lookup", "params": {"api_key": "leak"}},
+            ],
+            **BINDING,
+        },
+    )
+    assert response.status_code == 422
+

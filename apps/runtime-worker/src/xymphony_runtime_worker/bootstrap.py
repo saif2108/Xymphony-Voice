@@ -50,7 +50,10 @@ from xymphony_runtime import (
     STTRuntimeConfig,
     TTSRuntimeConfig,
 )
-from xymphony_tools import ToolRegistry
+from xymphony_tools import (
+    ToolRegistry,
+    build_agent_tool_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +349,22 @@ def build_voice_worker(
         tts_provider=tts_provider,
     )
 
+    resolved_tool_registry: ToolRegistry | None
+    enabled_tools = [b for b in agent_version.tools if b.enabled]
+    if enabled_tools:
+        if tool_registry is None:
+            tool_names = tuple(b.tool_name for b in enabled_tools)
+            msg = (
+                f"Agent version {agent_version.id} requires tools {tool_names},"
+                " but no tool_registry catalog was provided."
+            )
+            raise ValueError(msg)
+        resolved_tool_registry = build_agent_tool_registry(
+            tool_registry, agent_version.tools, strict=True
+        )
+    else:
+        resolved_tool_registry = tool_registry if not agent_version.tools else None
+
     runtime = AgentRuntime(
         context,
         llm_provider=resolved_llm,
@@ -357,7 +376,7 @@ def build_voice_worker(
         session_repository=session_repository,
         conversation_repository=conversation_repository,
         summary_repository=summary_repository,
-        tool_registry=tool_registry,
+        tool_registry=resolved_tool_registry,
     )
 
     resolved_transport = transport or LiveKitMediaTransport()
@@ -375,6 +394,7 @@ def build_voice_worker(
         extra={
             "session_id": str(session.id),
             "agent_version_id": str(agent_version.id),
+            "tools_count": len(resolved_tool_registry) if resolved_tool_registry is not None else 0,
         },
     )
     return VoiceWorkerComponents(

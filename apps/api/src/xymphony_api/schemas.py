@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from xymphony_contracts import (
     Agent,
     AgentStatus,
+    AgentToolBinding,
     AgentVersion,
     Channel,
     LLMBinding,
@@ -48,6 +49,19 @@ class AgentVersionCreateRequest(BaseModel):
     llm: LLMBinding
     stt: STTBinding
     tts: TTSBinding
+    tools: list[AgentToolBinding] = Field(default_factory=list)
+
+    @field_validator("tools")
+    @classmethod
+    def validate_tools(cls, value: list[AgentToolBinding]) -> list[AgentToolBinding]:
+        seen: set[str] = set()
+        for binding in value:
+            name = binding.tool_name
+            if name in seen:
+                msg = f"duplicate tool binding: {name}"
+                raise ValueError(msg)
+            seen.add(name)
+        return value
 
 
 class AgentVersionUpdateRequest(BaseModel):
@@ -59,6 +73,21 @@ class AgentVersionUpdateRequest(BaseModel):
     llm: LLMBinding | None = None
     stt: STTBinding | None = None
     tts: TTSBinding | None = None
+    tools: list[AgentToolBinding] | None = None
+
+    @field_validator("tools")
+    @classmethod
+    def validate_tools(cls, value: list[AgentToolBinding] | None) -> list[AgentToolBinding] | None:
+        if value is None:
+            return value
+        seen: set[str] = set()
+        for binding in value:
+            name = binding.tool_name
+            if name in seen:
+                msg = f"duplicate tool binding: {name}"
+                raise ValueError(msg)
+            seen.add(name)
+        return value
 
 
 class AgentVersionListResponse(BaseModel):

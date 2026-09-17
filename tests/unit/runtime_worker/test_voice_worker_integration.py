@@ -759,3 +759,84 @@ async def test_persisted_messages_after_successful_turn() -> None:
     assert MessageRole.ASSISTANT in roles
     assistant = next(message for message in messages if message.role == MessageRole.ASSISTANT)
     assert message_text(assistant) == "saved reply"
+
+
+def test_voice_worker_injects_restricted_tool_registry() -> None:
+    from xymphony_contracts import AgentToolBinding
+    from xymphony_tools import Tool, ToolRegistry
+
+    tool1 = Tool(name="tool_1", handler=lambda: "one")
+    tool2 = Tool(name="tool_2", handler=lambda: "two")
+    catalog = ToolRegistry()
+    catalog.register(tool1)
+    catalog.register(tool2)
+
+    sessions, conversation, seeded = _seed_repos()
+    version = make_agent_version(
+        id=seeded.agent_version_id,
+        tools=(
+            AgentToolBinding(tool_name="tool_1", enabled=True),
+            AgentToolBinding(tool_name="tool_2", enabled=False),
+        ),
+    )
+    components = build_voice_worker(
+        session=seeded,
+        agent_version=version,
+        session_repository=sessions,
+        conversation_repository=conversation,
+        transport=FakeMediaTransport(),
+        llm_provider=FakeLLMProvider(),
+        stt_provider=FakeSTTProvider(),
+        tts_provider=FakeTTSProvider(),
+        tool_registry=catalog,
+    )
+
+    assert components.runtime._tool_registry is not None
+    assert len(components.runtime._tool_registry) == 1
+    assert components.runtime._tool_registry.has("tool_1")
+    assert not components.runtime._tool_registry.has("tool_2")
+    assert components.runtime._tool_executor is not None
+    assert components.runtime._tool_executor.registry.has("tool_1")
+
+
+def test_voice_worker_missing_catalog_raises_when_agent_has_tools() -> None:
+    from xymphony_contracts import AgentToolBinding
+
+    sessions, conversation, seeded = _seed_repos()
+    version = make_agent_version(
+        id=seeded.agent_version_id,
+        tools=(AgentToolBinding(tool_name="tool_1", enabled=True),),
+    )
+    with pytest.raises(ValueError) as exc_info:
+        build_voice_worker(
+            session=seeded,
+            agent_version=version,
+            session_repository=sessions,
+            conversation_repository=conversation,
+            transport=FakeMediaTransport(),
+            llm_provider=FakeLLMProvider(),
+            stt_provider=FakeSTTProvider(),
+            tts_provider=FakeTTSProvider(),
+            tool_registry=None,
+        )
+    assert "requires tools" in str(exc_info.value)
+    assert "no tool_registry catalog was provided" in str(exc_info.value)
+
+
+def test_voice_worker_no_tools_preserves_none_registry() -> None:
+    sessions, conversation, seeded = _seed_repos()
+    version = make_agent_version(id=seeded.agent_version_id, tools=())
+    components = build_voice_worker(
+        session=seeded,
+        agent_version=version,
+        session_repository=sessions,
+        conversation_repository=conversation,
+        transport=FakeMediaTransport(),
+        llm_provider=FakeLLMProvider(),
+        stt_provider=FakeSTTProvider(),
+        tts_provider=FakeTTSProvider(),
+        tool_registry=None,
+    )
+    assert components.runtime._tool_registry is None
+    assert components.runtime._tool_executor is None
+

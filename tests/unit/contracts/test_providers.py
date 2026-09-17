@@ -105,3 +105,39 @@ def test_llm_request_generation_fields_validation() -> None:
             messages=(),
             max_output_tokens=0,
         )
+
+
+def test_agent_tool_binding_validation() -> None:
+    from xymphony_contracts import AgentToolBinding
+
+    # Valid binding
+    binding = AgentToolBinding(tool_name="get_weather", enabled=True, params={"units": "celsius"})
+    assert binding.tool_name == "get_weather"
+    assert binding.enabled is True
+    assert binding.params == {"units": "celsius"}
+
+    # Default values
+    default_binding = AgentToolBinding(tool_name="lookup")
+    assert default_binding.enabled is True
+    assert default_binding.params == {}
+
+    # Empty and whitespace-only tool_name rejected
+    with pytest.raises(ValidationError):
+        AgentToolBinding(tool_name="")
+    with pytest.raises(ValidationError):
+        AgentToolBinding(tool_name="   ")
+
+    # Name length bounded (max 128)
+    with pytest.raises(ValidationError):
+        AgentToolBinding(tool_name="a" * 129)
+
+    # Secret keys in params rejected
+    with pytest.raises(ValidationError):
+        AgentToolBinding(tool_name="api_tool", params={"api_key": "secret123"})
+    with pytest.raises(ValidationError):
+        AgentToolBinding(tool_name="api_tool", params={"Authorization": "Bearer xyz"})
+
+    # Immutability
+    with pytest.raises(ValidationError):
+        binding.enabled = False  # type: ignore[misc]
+

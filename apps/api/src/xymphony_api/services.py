@@ -151,6 +151,7 @@ class AgentService:
             llm=body.llm,
             stt=body.stt,
             tts=body.tts,
+            tools=tuple(body.tools),
             created_at=now,
         ).with_config_hash()
         assert snapshot.config_hash is not None
@@ -167,6 +168,7 @@ class AgentService:
             llm=snapshot.llm.model_dump(mode="json"),
             stt=snapshot.stt.model_dump(mode="json"),
             tts=snapshot.tts.model_dump(mode="json"),
+            tools=[t.model_dump(mode="json") for t in snapshot.tools],
             config_hash=snapshot.config_hash,
             created_at=snapshot.created_at,
             published_at=None,
@@ -234,6 +236,7 @@ class AgentService:
                     "llm": body.llm,
                     "stt": body.stt,
                     "tts": body.tts,
+                    "tools": tuple(body.tools) if body.tools is not None else None,
                 }.items()
                 if value is not None
             }
@@ -245,6 +248,7 @@ class AgentService:
         row.llm = updated.llm.model_dump(mode="json")
         row.stt = updated.stt.model_dump(mode="json")
         row.tts = updated.tts.model_dump(mode="json")
+        row.tools = [t.model_dump(mode="json") for t in updated.tools]
         row.config_hash = updated.config_hash
         self._session.flush()
         return version_to_contract(row)

@@ -108,6 +108,9 @@ class AgentVersionRow(Base):
     llm: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     stt: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     tts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    tools: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

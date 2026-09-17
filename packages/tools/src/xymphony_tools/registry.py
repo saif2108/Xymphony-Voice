@@ -1,13 +1,18 @@
-"""Provider-neutral tool registry."""
-
 from __future__ import annotations
 
+import logging
+from collections.abc import Sequence
+
+from xymphony_contracts import AgentToolBinding
 from xymphony_contracts.llm import LLMToolDefinition
 from xymphony_tools.domain import Tool
-from xymphony_tools.errors import ToolAlreadyRegisteredError
+from xymphony_tools.errors import ToolAlreadyRegisteredError, ToolNotFoundError
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ToolRegistry",
+    "build_agent_tool_registry",
 ]
 
 
@@ -54,3 +59,47 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+    def create_restricted(
+        self,
+        bindings: Sequence[AgentToolBinding],
+        *,
+        strict: bool = True,
+    ) -> ToolRegistry:
+        """Create an agent-specific restricted ToolRegistry from tool bindings."""
+        return build_agent_tool_registry(self, bindings, strict=strict)
+
+
+def build_agent_tool_registry(
+    catalog: ToolRegistry,
+    tool_bindings: Sequence[AgentToolBinding],
+    *,
+    strict: bool = True,
+) -> ToolRegistry:
+    """Build an agent-specific restricted ToolRegistry from persisted tool bindings.
+
+    - Disabled bindings (enabled=False) are excluded.
+    - Resolves tools only from the provided approved tool registry (catalog).
+    - If strict=True (default), raises ToolNotFoundError if an enabled tool binding is not in
+      catalog.
+    - If strict=False, logs a warning and skips unknown tools.
+    - Disabled or unconfigured tools in the catalog are never registered in the resulting registry.
+    """
+    agent_registry = ToolRegistry()
+    for binding in tool_bindings:
+        if not binding.enabled:
+            continue
+        tool = catalog.get(binding.tool_name)
+        if tool is None:
+            if strict:
+                raise ToolNotFoundError(binding.tool_name)
+            logger.warning(
+                "agent_tool_unresolved",
+                extra={"tool_name": binding.tool_name},
+            )
+            continue
+        agent_registry.register(tool)
+
+    return agent_registry
+
+

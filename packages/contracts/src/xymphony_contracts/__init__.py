@@ -54,7 +54,7 @@ from xymphony_contracts.persistence import (
     CreateSessionRequest,
     SessionRepository,
 )
-from xymphony_contracts.providers import LLMBinding, STTBinding, TTSBinding
+from xymphony_contracts.providers import AgentToolBinding, LLMBinding, STTBinding, TTSBinding
 from xymphony_contracts.session import Message, Session, Turn
 from xymphony_contracts.stt import (
     STTAudioFormat,
@@ -81,6 +81,7 @@ __all__ = [
     "Agent",
     "AgentInterruptedPayload",
     "AgentStatus",
+    "AgentToolBinding",
     "AgentVersion",
     "AgentVersionStatus",
     "AudioFramePayload",

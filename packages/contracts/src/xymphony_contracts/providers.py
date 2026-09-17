@@ -64,3 +64,25 @@ class TTSBinding(FrozenModel):
     @classmethod
     def params_must_not_hold_secrets(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         return _reject_secret_params(value)
+
+
+class AgentToolBinding(FrozenModel):
+    """AgentVersion tool binding referencing an approved tool in the global ToolRegistry."""
+
+    tool_name: str = Field(min_length=1, max_length=128)
+    enabled: bool = True
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("tool_name")
+    @classmethod
+    def tool_name_must_not_be_empty(cls, value: str) -> str:
+        if not value or not value.strip():
+            msg = "tool_name must not be empty"
+            raise ValueError(msg)
+        return value.strip()
+
+    @field_validator("params")
+    @classmethod
+    def params_must_not_hold_secrets(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        return _reject_secret_params(value)
+

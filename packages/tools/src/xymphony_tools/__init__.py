@@ -11,7 +11,10 @@ from xymphony_tools.errors import (
     ToolNotFoundError,
 )
 from xymphony_tools.executor import ToolExecutor
-from xymphony_tools.registry import ToolRegistry
+from xymphony_tools.registry import (
+    ToolRegistry,
+    build_agent_tool_registry,
+)
 from xymphony_tools.validation import validate_tool_arguments
 
 __all__ = [
@@ -28,5 +31,6 @@ __all__ = [
     "ToolNotFoundError",
     "ToolRegistry",
     "ToolResult",
+    "build_agent_tool_registry",
     "validate_tool_arguments",
 ]

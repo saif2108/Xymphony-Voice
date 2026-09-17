@@ -10,7 +10,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from xymphony_contracts.enums import AgentStatus, AgentVersionStatus
-from xymphony_contracts.providers import LLMBinding, STTBinding, TTSBinding
+from xymphony_contracts.providers import AgentToolBinding, LLMBinding, STTBinding, TTSBinding
 
 
 class Agent(BaseModel):
@@ -59,10 +59,24 @@ class AgentVersion(BaseModel):
     llm: LLMBinding
     stt: STTBinding
     tts: TTSBinding
+    tools: tuple[AgentToolBinding, ...] = ()
     config_hash: str | None = None
     created_by: UUID | None = None
     created_at: AwareDatetime
     published_at: AwareDatetime | None = None
+
+    @field_validator("tools")
+    @classmethod
+    def validate_tools(cls, value: tuple[AgentToolBinding, ...]) -> tuple[AgentToolBinding, ...]:
+        seen: set[str] = set()
+        for binding in value:
+            name = binding.tool_name
+            if name in seen:
+                msg = f"duplicate tool binding: {name}"
+                raise ValueError(msg)
+            seen.add(name)
+        return value
+
 
     @field_validator("config_hash")
     @classmethod
@@ -118,6 +132,7 @@ class AgentVersion(BaseModel):
             "llm": self.llm.model_dump(mode="json"),
             "stt": self.stt.model_dump(mode="json"),
             "tts": self.tts.model_dump(mode="json"),
+            "tools": [t.model_dump(mode="json") for t in self.tools],
         }
         encoded = dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return sha256(encoded).hexdigest()
