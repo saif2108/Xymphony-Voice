@@ -53,6 +53,7 @@ from xymphony_runtime import (
 from xymphony_tools import (
     ToolRegistry,
     build_agent_tool_registry,
+    create_default_tool_registry,
 )
 
 logger = logging.getLogger(__name__)
@@ -437,6 +438,10 @@ def build_voice_worker_from_db(
             sql,
         ),
     )
+    catalog = tool_registry
+    if catalog is None and any(b.enabled for b in agent_version.tools):
+        catalog = create_default_tool_registry()
+
     return build_voice_worker(
         session=session,
         agent_version=agent_version,
@@ -447,5 +452,5 @@ def build_voice_worker_from_db(
         llm_provider=llm_provider,
         stt_provider=stt_provider,
         tts_provider=tts_provider,
-        tool_registry=tool_registry,
+        tool_registry=catalog,
     )
