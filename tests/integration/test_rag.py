@@ -1,7 +1,12 @@
+from uuid import UUID
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from xymphony_api.models import DocumentChunkRow
+from tests.integration.conftest import BINDING
+from xymphony_api.models import AgentVersionKnowledgeBaseRow, DocumentChunkRow
+from xymphony_api.repositories import DocumentChunkRepository
+from xymphony_rag.embeddings import LocalEmbeddingProvider
 
 
 def _create_knowledge_base(client: TestClient, project_id: str) -> dict:
@@ -75,6 +80,7 @@ def test_create_and_list_documents(
     assert chunks[0].content
     assert chunks[0].embedding is not None
     assert len(chunks[0].embedding) == 384
+    assert chunks[0].search_vector is not None
 
     response = client.get(
         f"/v1/knowledge-bases/{knowledge_base_id}/documents",
@@ -85,3 +91,61 @@ def test_create_and_list_documents(
     items = response.json()["items"]
 
     assert any(item["id"] == document["id"] for item in items)
+
+def test_hybrid_retrieval_returns_relevant_chunk(
+    client: TestClient,
+    project_id: str,
+    db_session,
+) -> None:
+    knowledge_base = _create_knowledge_base(client, project_id)
+    knowledge_base_id = knowledge_base["id"]
+
+    agent = client.post(
+        f"/v1/projects/{project_id}/agents",
+        json={"name": "RAG Test Agent"},
+    )
+    assert agent.status_code == 201
+    agent_id = agent.json()["id"]
+
+    version = client.post(
+        f"/v1/projects/{project_id}/agents/{agent_id}/versions",
+        json={"instructions": "You are helpful.", **BINDING},
+    )
+    assert version.status_code == 201
+    version_id = UUID(version.json()["id"])
+
+    db_session.add(
+        AgentVersionKnowledgeBaseRow(
+            agent_version_id=version_id,
+            knowledge_base_id=UUID(knowledge_base_id),
+        )
+    )
+    db_session.flush()
+
+    document = client.post(
+        f"/v1/knowledge-bases/{knowledge_base_id}/documents",
+        json={
+            "name": "Product Information",
+            "content": (
+                "Xymphony Voice provides realtime AI voice agents. "
+                "Agents can use knowledge bases to answer questions."
+            ),
+        },
+    )
+    assert document.status_code == 201
+
+    embedding_provider = LocalEmbeddingProvider()
+    query_embedding = embedding_provider.embed(
+        "How do I build a realtime voice agent?"
+    )
+
+    repository = DocumentChunkRepository(db_session)
+    results = repository.search_hybrid(
+        agent_version_id=version_id,
+        query="How do I build a realtime voice agent?",
+        query_embedding=query_embedding,
+        limit=5,
+    )
+
+    assert results
+    assert "realtime AI voice agents" in results[0].content

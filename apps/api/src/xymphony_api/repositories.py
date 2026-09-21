@@ -323,7 +323,10 @@ class AgentVersionToolRepository:
     def attach(
         self, *, agent_version_id: UUID, tool_definition_id: UUID, enabled: bool = True
     ) -> AgentVersionToolRow:
-        existing = self.get(agent_version_id=agent_version_id, tool_definition_id=tool_definition_id)
+        existing = self.get(
+            agent_version_id=agent_version_id,
+            tool_definition_id=tool_definition_id,
+        )
         if existing is not None:
             existing.enabled = enabled
             self._session.flush()
@@ -340,9 +343,7 @@ class AgentVersionToolRepository:
     def get(
         self, *, agent_version_id: UUID, tool_definition_id: UUID
     ) -> AgentVersionToolRow | None:
-        return self._session.get(
-            AgentVersionToolRow, (agent_version_id, tool_definition_id)
-        )
+        return self._session.get(AgentVersionToolRow, (agent_version_id, tool_definition_id))
 
     def detach(self, *, agent_version_id: UUID, tool_definition_id: UUID) -> bool:
         row = self.get(agent_version_id=agent_version_id, tool_definition_id=tool_definition_id)
@@ -352,9 +353,7 @@ class AgentVersionToolRepository:
         self._session.flush()
         return True
 
-    def list_for_version(
-        self, *, agent_version_id: UUID
-    ) -> list[AgentVersionToolRow]:
+    def list_for_version(self, *, agent_version_id: UUID) -> list[AgentVersionToolRow]:
         stmt = (
             select(AgentVersionToolRow)
             .where(AgentVersionToolRow.agent_version_id == agent_version_id)
@@ -479,6 +478,57 @@ class DocumentChunkRepository:
             .order_by(DocumentChunkRow.chunk_index.asc())
         )
         return list(self._session.scalars(stmt).all())
+    def search_hybrid(
+        self,
+        *,
+        agent_version_id: UUID,
+        query: str,
+        query_embedding: list[float],
+        limit: int = 5,
+    ) -> list[DocumentChunkRow]:
+        semantic_distance = DocumentChunkRow.embedding.cosine_distance(
+            query_embedding
+        )
+        lexical_query = func.websearch_to_tsquery("english", query)
+
+        semantic_score = 1 - semantic_distance
+        lexical_score = func.coalesce(
+            func.ts_rank_cd(
+                DocumentChunkRow.search_vector,
+                lexical_query,
+            ),
+            0,
+        )
+
+        combined_score = (
+            (0.7 * semantic_score) +
+            (0.3 * lexical_score)
+        )
+
+        stmt = (
+            select(DocumentChunkRow)
+            .join(
+                DocumentRow,
+                DocumentRow.id == DocumentChunkRow.document_id,
+            )
+            .join(
+                AgentVersionKnowledgeBaseRow,
+                AgentVersionKnowledgeBaseRow.knowledge_base_id
+                == DocumentRow.knowledge_base_id,
+            )
+            .where(
+                AgentVersionKnowledgeBaseRow.agent_version_id
+                == agent_version_id,
+                DocumentChunkRow.embedding.is_not(None),
+            )
+            .order_by(combined_score.desc())
+            .limit(limit)
+        )
+
+        return list(self._session.scalars(stmt).all())
+
+
+
 
     def delete_for_document(self, *, document_id: UUID) -> None:
         stmt = select(DocumentChunkRow).where(DocumentChunkRow.document_id == document_id)
