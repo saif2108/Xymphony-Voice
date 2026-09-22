@@ -486,6 +486,24 @@ class DocumentChunkRepository:
         query_embedding: list[float],
         limit: int = 5,
     ) -> list[DocumentChunkRow]:
+        return [
+            row
+            for row, _score in self.search_hybrid_scored(
+                agent_version_id=agent_version_id,
+                query=query,
+                query_embedding=query_embedding,
+                limit=limit,
+            )
+        ]
+
+    def search_hybrid_scored(
+        self,
+        *,
+        agent_version_id: UUID,
+        query: str,
+        query_embedding: list[float],
+        limit: int = 5,
+    ) -> list[tuple[DocumentChunkRow, float]]:
         semantic_distance = DocumentChunkRow.embedding.cosine_distance(
             query_embedding
         )
@@ -506,7 +524,7 @@ class DocumentChunkRepository:
         )
 
         stmt = (
-            select(DocumentChunkRow)
+            select(DocumentChunkRow, combined_score.label("score"))
             .join(
                 DocumentRow,
                 DocumentRow.id == DocumentChunkRow.document_id,
@@ -525,7 +543,10 @@ class DocumentChunkRepository:
             .limit(limit)
         )
 
-        return list(self._session.scalars(stmt).all())
+        return [
+            (row, float(score))
+            for row, score in self._session.execute(stmt).all()
+        ]
 
 
 
