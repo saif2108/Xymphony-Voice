@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
 from xymphony_api.deps import get_session_service
-from xymphony_api.schemas import MessageListResponse, SessionCreateRequest
+from xymphony_api.schemas import MessageListResponse, SessionCreateRequest, SessionListResponse
 from xymphony_api.services import SessionService
 from xymphony_contracts.session import Session
 
@@ -17,6 +17,14 @@ def create_session(
     service: SessionService = Depends(get_session_service),
 ) -> Session:
     return service.create_session(project_id, body)
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+def list_sessions(
+    project_id: UUID,
+    service: SessionService = Depends(get_session_service),
+) -> SessionListResponse:
+    return SessionListResponse(items=service.list_sessions(project_id))
 
 
 @router.get("/sessions/{session_id}", response_model=Session)

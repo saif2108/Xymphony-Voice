@@ -373,6 +373,15 @@ class SessionService:
             raise NotFoundError("Session not found")
         return session_to_contract(row)
 
+    def list_sessions(self, project_id: UUID, *, limit: int = 50) -> list[SessionContract]:
+        project = self.require_project(project_id)
+        rows = self._sessions.list_in_project(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            limit=limit,
+        )
+        return [session_to_contract(row) for row in rows]
+
     def update_session_status(
         self, project_id: UUID, session_id: UUID, status: SessionStatus
     ) -> SessionContract:

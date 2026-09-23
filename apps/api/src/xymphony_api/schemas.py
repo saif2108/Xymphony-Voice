@@ -12,6 +12,7 @@ from xymphony_contracts import (
     Channel,
     LLMBinding,
     Message,
+    Session,
     STTBinding,
     ToolDefinition,
     ToolType,
@@ -80,6 +81,10 @@ class SessionCreateRequest(BaseModel):
 
 class MessageListResponse(BaseModel):
     items: list[Message]
+
+
+class SessionListResponse(BaseModel):
+    items: list[Session]
 
 
 class HealthResponse(BaseModel):

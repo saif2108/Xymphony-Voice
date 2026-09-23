@@ -74,6 +74,20 @@ def test_create_session_requires_published_version(client: TestClient, project_i
     assert response.json()["code"] == "no_published_version"
 
 
+def test_list_sessions_returns_project_sessions(client: TestClient, project_id: str) -> None:
+    agent_id, version_id = _create_agent_with_published_version(client, project_id)
+    created = client.post(
+        f"/v1/projects/{project_id}/sessions",
+        json={"agent_id": agent_id, "agent_version_id": version_id},
+    )
+    assert created.status_code == 201
+
+    response = client.get(f"/v1/projects/{project_id}/sessions")
+
+    assert response.status_code == 200
+    assert any(item["id"] == created.json()["id"] for item in response.json()["items"])
+
+
 def test_list_session_messages_empty(client: TestClient, project_id: str) -> None:
     agent_id, _version_id = _create_agent_with_published_version(client, project_id)
     created = client.post(

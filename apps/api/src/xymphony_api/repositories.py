@@ -183,6 +183,24 @@ class SessionRepository:
             stmt = stmt.where(SessionRow.project_id == project_id)
         return self._session.scalar(stmt)
 
+    def list_in_project(
+        self,
+        *,
+        project_id: UUID,
+        organization_id: UUID,
+        limit: int = 50,
+    ) -> list[SessionRow]:
+        stmt = (
+            select(SessionRow)
+            .where(
+                SessionRow.project_id == project_id,
+                SessionRow.organization_id == organization_id,
+            )
+            .order_by(SessionRow.started_at.desc(), SessionRow.id.desc())
+            .limit(limit)
+        )
+        return list(self._session.scalars(stmt).all())
+
     def update(self, row: SessionRow) -> SessionRow:
         self._session.flush()
         return row
