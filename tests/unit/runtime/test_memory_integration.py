@@ -160,6 +160,22 @@ def test_memory_config_disabled() -> None:
     assert cfg.enabled is False
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"recall_limit": 0}, "recall_limit"),
+        ({"recall_limit": -1}, "recall_limit"),
+        ({"recall_timeout_seconds": 0}, "recall_timeout_seconds"),
+        ({"recall_timeout_seconds": -1}, "recall_timeout_seconds"),
+    ],
+)
+def test_memory_config_rejects_invalid_recall_limits(
+    kwargs: dict[str, int], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        MemoryRuntimeConfig(**kwargs)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # _recall_memory
 # ---------------------------------------------------------------------------
@@ -182,6 +198,12 @@ async def test_recall_returns_formatted_text() -> None:
     assert result is not None
     assert "User is a developer." in result
     assert len(store.recalled) == 1
+    assert store.recalled[0] == {
+        "agent_id": runtime.context.agent_id,
+        "session_id": runtime.context.session_id,
+        "query": "tell me about myself",
+        "limit": runtime._memory_config.recall_limit,
+    }
 
 
 @pytest.mark.asyncio

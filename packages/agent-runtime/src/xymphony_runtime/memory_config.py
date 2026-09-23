@@ -1,9 +1,11 @@
-"""Runtime memory configuration, protocol, and context formatting for recall.
+"""Provider-independent recall contract and context formatting for long-term memory.
 
-Long-term memory is cross-session: facts about the user extracted during previous
-conversations are retrieved to personalise future turns. This module provides a
-recall-only port for the agent runtime; memory extraction, persistence, ownership,
-privacy, and cross-session scoping are handled by external adapters or future milestones.
+The runtime supplies agent/session identity, query text, and a recall limit. The
+adapter owns persistence and extraction/writes, authorization and privacy checks,
+tenant or other cross-session scope enforcement, retention/deletion, and
+provider-specific filtering. A session identifier alone does not define safe
+cross-session scope. ``recall`` may be synchronous or asynchronous; the runtime
+supports both. This contract intentionally exposes no writeback operation.
 """
 
 from __future__ import annotations
@@ -16,7 +18,12 @@ from uuid import UUID
 
 @dataclass(frozen=True, slots=True)
 class MemoryEntry:
-    """A single remembered fact about a user / agent context."""
+    """A recalled memory with source-stable identity, content, and relevance.
+
+    ``memory_id`` is assigned by the adapter and stable within its store.
+    ``score`` is an optional provider-neutral relevance value (higher is more
+    relevant); the runtime displays content and does not interpret the score.
+    """
 
     content: str
     """Human-readable statement, e.g. ``'User prefers brief answers.'``"""
@@ -29,10 +36,17 @@ class MemoryEntry:
 
 
 class MemoryStore(Protocol):
-    """Port for retrieving cross-session memories during runtime orchestration.
+    """Recall-only adapter boundary for runtime orchestration.
 
-    This interface only defines memory recall. Persistence, extraction, ownership,
-    privacy, and cross-session scoping are handled by future adapters.
+    The request identifies the current agent and session and supplies the current
+    user query and maximum result count. Adapters must enforce authorization and
+    all tenant/user/project and cross-session scope rules; ``session_id`` alone
+    must not be treated as sufficient isolation. Storage, extraction, writes,
+    retention, and deletion belong to the adapter. No transcript or write API is
+    part of this contract.
+
+    Implementations may return directly or asynchronously; both forms are
+    supported by ``AgentRuntime``.
     """
 
     def recall(
@@ -59,6 +73,12 @@ class MemoryRuntimeConfig:
 
     recall_timeout_seconds: float = 1.5
     """Async timeout (seconds) for ``MemoryStore.recall``."""
+
+    def __post_init__(self) -> None:
+        if self.recall_limit < 1:
+            raise ValueError("recall_limit must be a positive integer")
+        if self.recall_timeout_seconds <= 0:
+            raise ValueError("recall_timeout_seconds must be positive")
 
 
 def format_memory_context(entries: Sequence[MemoryEntry]) -> str:
