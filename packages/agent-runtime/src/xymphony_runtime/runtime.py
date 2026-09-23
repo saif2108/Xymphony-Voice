@@ -47,6 +47,12 @@ from xymphony_runtime.errors import (
 from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.llm_context import LLMContextAssembler
+from xymphony_runtime.rag_config import (
+    RAGRuntimeConfig,
+    RetrievalResult,
+    Retriever,
+    format_retrieval_context,
+)
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk
 from xymphony_runtime.stt_config import STTRuntimeConfig
 from xymphony_runtime.summarization import ConversationSummarizer
@@ -78,6 +84,8 @@ class AgentRuntime:
         conversation_repository: ConversationRepository | None = None,
         summary_repository: ConversationSummaryRepository | None = None,
         tool_registry: ToolRegistry | None = None,
+        retriever: Retriever | None = None,
+        rag_config: RAGRuntimeConfig | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
@@ -86,6 +94,8 @@ class AgentRuntime:
         self._summary_repository = summary_repository
         self._tool_registry = tool_registry
         self._tool_executor = ToolExecutor(tool_registry) if tool_registry is not None else None
+        self._retriever = retriever
+        self._rag_config = rag_config or RAGRuntimeConfig()
         self._llm_provider = llm_provider
         self._llm_config = llm_config
         self._stt_provider = stt_provider
@@ -147,6 +157,10 @@ class AgentRuntime:
     @property
     def voice_output_enabled(self) -> bool:
         return self._tts_provider is not None and self._tts_config is not None
+
+    @property
+    def rag_enabled(self) -> bool:
+        return self._retriever is not None and self._rag_config.enabled
 
     def on_event(self, listener: EventListener) -> None:
         self._listeners.append(listener)
@@ -463,6 +477,56 @@ class AgentRuntime:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
+    async def _retrieve_knowledge(
+        self,
+        *,
+        text: str,
+        cancel: EventCancellationToken,
+        turn_id: UUID,
+    ) -> str | None:
+        if not self.rag_enabled or not text.strip():
+            return None
+        if cancel.cancelled or self._context.is_turn_cancelled(turn_id):
+            return None
+
+        try:
+            limit = self._rag_config.limit
+            timeout = self._rag_config.timeout_seconds
+
+            async def _do_retrieve() -> list[RetrievalResult]:
+                retriever = self._retriever
+                assert retriever is not None
+                if asyncio.iscoroutinefunction(retriever.retrieve):
+                    return await retriever.retrieve(query=text, limit=limit)  # type: ignore[misc]
+                return await asyncio.to_thread(retriever.retrieve, query=text, limit=limit)
+
+            results: list[RetrievalResult] = await asyncio.wait_for(_do_retrieve(), timeout=timeout)
+        except TimeoutError:
+            logger.warning(
+                "rag_retrieval_timeout",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn_id),
+                    "timeout_seconds": self._rag_config.timeout_seconds,
+                },
+            )
+            return None
+        except Exception as exc:
+            logger.warning(
+                "rag_retrieval_failed",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn_id),
+                    "error": str(exc),
+                },
+            )
+            return None
+
+        if not results:
+            return None
+
+        return format_retrieval_context(results)
+
     async def _run_llm_stream(
         self,
         turn: RuntimeTurn,
@@ -490,6 +554,16 @@ class AgentRuntime:
             summary_text = preparation.summary_text
             assembly_history = preparation.history_for_assembly
 
+        knowledge_text: str | None = None
+        if self.rag_enabled and text.strip():
+            knowledge_text = await self._retrieve_knowledge(
+                text=text,
+                cancel=cancel,
+                turn_id=turn.id,
+            )
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return None
+
         extra_messages: list[LLMMessage] = []
         tool_definitions = (
             self._tool_registry.get_definitions()
@@ -507,6 +581,7 @@ class AgentRuntime:
                     current_user_text=text,
                     config=self._llm_config,
                     summary_text=summary_text,
+                    knowledge_text=knowledge_text,
                     tools=tool_definitions,
                     extra_messages=extra_messages,
                 )

@@ -9,23 +9,36 @@ from xymphony_runtime.errors import ContextBudgetExceededError
 from xymphony_runtime.token_estimate import TokenEstimator, approximate_token_count
 
 SUMMARY_SECTION_HEADER = "[Conversation summary]"
+KNOWLEDGE_SECTION_HEADER = "[Retrieved context]"
+
+
+def build_system_prompt(
+    system_instructions: str,
+    *,
+    summary_text: str | None = None,
+    knowledge_text: str | None = None,
+) -> str:
+    """Combine agent instructions with optional summary and retrieved knowledge context sections."""
+    sections: list[str] = []
+    if system_instructions.strip():
+        sections.append(system_instructions.strip())
+    if summary_text and summary_text.strip():
+        sections.append(f"{SUMMARY_SECTION_HEADER}\n{summary_text.strip()}")
+    if knowledge_text and knowledge_text.strip():
+        sections.append(f"{KNOWLEDGE_SECTION_HEADER}\n{knowledge_text.strip()}")
+    return "\n\n".join(sections)
 
 
 def build_system_with_summary(system_instructions: str, summary_text: str | None) -> str:
     """Combine agent instructions with optional summary context section."""
-    if not summary_text:
-        return system_instructions
-    summary_block = f"{SUMMARY_SECTION_HEADER}\n{summary_text.strip()}"
-    if system_instructions.strip():
-        return f"{system_instructions.rstrip()}\n\n{summary_block}"
-    return summary_block
+    return build_system_prompt(system_instructions, summary_text=summary_text)
 
 
 class ContextBudgetPolicy:
     """Select a suffix of conversation history that fits an input budget.
 
     Priority (highest first):
-    1. system instructions (including optional summary section)
+    1. system instructions (including optional summary and knowledge sections)
     2. current user message
     3. newest complete historical messages
 
@@ -43,19 +56,24 @@ class ContextBudgetPolicy:
         system_instructions: str,
         max_input_tokens: int,
         summary_text: str | None = None,
+        knowledge_text: str | None = None,
     ) -> tuple[LLMMessage, ...]:
         if max_input_tokens < 1:
             raise ContextBudgetExceededError(
                 "max_input_tokens must be a positive integer when budgeting is enabled"
             )
 
-        system_prompt = build_system_with_summary(system_instructions, summary_text)
+        system_prompt = build_system_prompt(
+            system_instructions,
+            summary_text=summary_text,
+            knowledge_text=knowledge_text,
+        )
         system_tokens = self._estimate(system_prompt)
         if system_tokens > max_input_tokens:
             raise ContextBudgetExceededError(
                 "system instructions exceed the configured context budget"
-                if not summary_text
-                else "system instructions and conversation summary exceed the context budget"
+                if not summary_text and not knowledge_text
+                else "system instructions and context exceed the context budget"
             )
 
         remaining = max_input_tokens - system_tokens

@@ -21,6 +21,12 @@ from xymphony_runtime.persistence import (
     InMemoryConversationSummaryRepository,
     InMemorySessionRepository,
 )
+from xymphony_runtime.rag_config import (
+    RAGRuntimeConfig,
+    RetrievalResult,
+    Retriever,
+    format_retrieval_context,
+)
 from xymphony_runtime.runtime import AgentRuntime
 from xymphony_runtime.session import MinimalTransportSession
 from xymphony_runtime.streaming import IncrementalOutputSink, RuntimeStreamChunk, StreamChunkKind
@@ -36,6 +42,7 @@ __all__ = [
     "ContextBudgetExceededError",
     "ContextBudgetPolicy",
     "ConversationSummarizer",
+    "format_retrieval_context",
     "IncrementalOutputSink",
     "InMemoryConversationRepository",
     "InMemoryConversationSummaryRepository",
@@ -46,6 +53,9 @@ __all__ = [
     "InvalidStateTransitionError",
     "LifecycleTransition",
     "MinimalTransportSession",
+    "RAGRuntimeConfig",
+    "RetrievalResult",
+    "Retriever",
     "RuntimeMediaBridge",
     "RuntimeContext",
     "RuntimeError",

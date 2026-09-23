@@ -6,7 +6,10 @@ from collections.abc import Sequence
 
 from xymphony_contracts.llm import LLMMessage, LLMRequest, LLMRole, LLMToolDefinition
 from xymphony_contracts.session import Message
-from xymphony_runtime.context_budget import ContextBudgetPolicy, build_system_with_summary
+from xymphony_runtime.context_budget import (
+    ContextBudgetPolicy,
+    build_system_prompt,
+)
 from xymphony_runtime.conversation import committed_messages_to_llm
 from xymphony_runtime.errors import ContextBudgetExceededError
 from xymphony_runtime.llm_config import LLMRuntimeConfig
@@ -18,8 +21,8 @@ class LLMContextAssembler:
     Does not access repositories, providers, or persistence. Does not mutate
     the supplied history sequence. When ``config.max_input_tokens`` is set,
     applies :class:`ContextBudgetPolicy` before building the request.
-    Optional ``summary_text`` is appended to ``LLMRequest.system`` as a
-    dedicated context section (not a conversation turn).
+    Optional ``summary_text`` and ``knowledge_text`` are appended to
+    ``LLMRequest.system`` as dedicated context sections (not conversation turns).
     """
 
     def __init__(self, budget_policy: ContextBudgetPolicy | None = None) -> None:
@@ -32,11 +35,13 @@ class LLMContextAssembler:
         current_user_text: str,
         config: LLMRuntimeConfig,
         summary_text: str | None = None,
+        knowledge_text: str | None = None,
         tools: Sequence[LLMToolDefinition] = (),
         extra_messages: Sequence[LLMMessage] = (),
     ) -> LLMRequest:
         llm_history = committed_messages_to_llm(tuple(history))
         effective_summary = summary_text
+        effective_knowledge = knowledge_text
         if config.max_input_tokens is not None:
             try:
                 llm_history = self._budget_policy.select_history(
@@ -45,19 +50,46 @@ class LLMContextAssembler:
                     system_instructions=config.system_instructions,
                     max_input_tokens=config.max_input_tokens,
                     summary_text=effective_summary,
+                    knowledge_text=effective_knowledge,
                 )
             except ContextBudgetExceededError:
-                if effective_summary is None:
+                # Soft-fail: try dropping knowledge first, then summary
+                if effective_knowledge is not None:
+                    effective_knowledge = None
+                    try:
+                        llm_history = self._budget_policy.select_history(
+                            committed_messages_to_llm(tuple(history)),
+                            current_user_text=current_user_text,
+                            system_instructions=config.system_instructions,
+                            max_input_tokens=config.max_input_tokens,
+                            summary_text=effective_summary,
+                            knowledge_text=None,
+                        )
+                    except ContextBudgetExceededError:
+                        if effective_summary is not None:
+                            effective_summary = None
+                            llm_history = self._budget_policy.select_history(
+                                committed_messages_to_llm(tuple(history)),
+                                current_user_text=current_user_text,
+                                system_instructions=config.system_instructions,
+                                max_input_tokens=config.max_input_tokens,
+                                summary_text=None,
+                                knowledge_text=None,
+                            )
+                        else:
+                            raise
+                elif effective_summary is not None:
+                    effective_summary = None
+                    llm_history = self._budget_policy.select_history(
+                        committed_messages_to_llm(tuple(history)),
+                        current_user_text=current_user_text,
+                        system_instructions=config.system_instructions,
+                        max_input_tokens=config.max_input_tokens,
+                        summary_text=None,
+                        knowledge_text=None,
+                    )
+                else:
                     raise
-                # Soft-fail oversized summary: continue with Step 2 budgeted history.
-                effective_summary = None
-                llm_history = self._budget_policy.select_history(
-                    committed_messages_to_llm(tuple(history)),
-                    current_user_text=current_user_text,
-                    system_instructions=config.system_instructions,
-                    max_input_tokens=config.max_input_tokens,
-                    summary_text=None,
-                )
 
         return LLMRequest(
             provider_key=config.provider_key,
@@ -68,7 +100,11 @@ class LLMContextAssembler:
                 *extra_messages,
             ),
             tools=tuple(tools),
-            system=build_system_with_summary(config.system_instructions, effective_summary),
+            system=build_system_prompt(
+                config.system_instructions,
+                summary_text=effective_summary,
+                knowledge_text=effective_knowledge,
+            ),
             params=config.params,
             temperature=config.temperature,
             max_output_tokens=config.max_output_tokens,
