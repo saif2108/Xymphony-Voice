@@ -17,6 +17,21 @@ from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryIdentityContext:
+    """Available identity dimensions for adapter-side scope enforcement.
+
+    ``user_id`` remains optional until the runtime has an authoritative source
+    for the current user.
+    """
+
+    agent_id: UUID
+    session_id: UUID
+    organization_id: UUID | None = None
+    project_id: UUID | None = None
+    user_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryEntry:
     """A recalled memory with source-stable identity, content, and relevance.
 
@@ -38,12 +53,14 @@ class MemoryEntry:
 class MemoryStore(Protocol):
     """Recall-only adapter boundary for runtime orchestration.
 
-    The request identifies the current agent and session and supplies the current
-    user query and maximum result count. Adapters must enforce authorization and
-    all tenant/user/project and cross-session scope rules; ``session_id`` alone
-    must not be treated as sufficient isolation. Storage, extraction, writes,
-    retention, and deletion belong to the adapter. No transcript or write API is
-    part of this contract.
+    The request supplies the current query and maximum result count, plus an
+    optional ``identity`` context. The context carries available agent,
+    organization, project, and session identity. User identity is optional
+    because the runtime does not currently resolve one. Adapters must
+    enforce authorization and all tenant/user/project and cross-session scope
+    rules; ``session_id`` alone must not be treated as sufficient isolation.
+    Storage, extraction, writes, retention, and deletion belong to the adapter.
+    No transcript or write API is part of this contract.
 
     Implementations may return directly or asynchronously; both forms are
     supported by ``AgentRuntime``.
@@ -56,8 +73,13 @@ class MemoryStore(Protocol):
         session_id: UUID,
         query: str,
         limit: int = 10,
+        identity: MemoryIdentityContext | None = None,
     ) -> list[MemoryEntry]:
-        """Return the most relevant memories for *query*."""
+        """Return relevant memories in the available identity context.
+
+        The optional context keeps older adapters compatible. Implementations
+        remain responsible for validating and enforcing scope.
+        """
         ...
 
 

@@ -17,6 +17,7 @@ from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.llm_context import LLMContextAssembler
 from xymphony_runtime.memory_config import (
     MemoryEntry,
+    MemoryIdentityContext,
     MemoryRuntimeConfig,
     MemoryStore,
     format_memory_context,
@@ -63,6 +64,7 @@ __all__ = [
     "RetrievalResult",
     "Retriever",
     "MemoryEntry",
+    "MemoryIdentityContext",
     "MemoryRuntimeConfig",
     "MemoryStore",
     "format_memory_context",

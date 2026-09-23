@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
@@ -50,6 +51,7 @@ from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.llm_context import LLMContextAssembler
 from xymphony_runtime.memory_config import (
     MemoryEntry,
+    MemoryIdentityContext,
     MemoryRuntimeConfig,
     MemoryStore,
     format_memory_context,
@@ -565,23 +567,40 @@ class AgentRuntime:
             assert store is not None
             limit = self._memory_config.recall_limit
             timeout = self._memory_config.recall_timeout_seconds
+            identity = MemoryIdentityContext(
+                agent_id=self._context.agent_id,
+                session_id=self._context.session_id,
+                organization_id=self._context.organization_id,
+                project_id=self._context.project_id,
+            )
+
+            def _recall_kwargs() -> dict[str, object]:
+                kwargs: dict[str, object] = {
+                    "agent_id": self._context.agent_id,
+                    "session_id": self._context.session_id,
+                    "query": text,
+                    "limit": limit,
+                }
+                supports_identity = False
+                try:
+                    parameters = tuple(inspect.signature(store.recall).parameters.values())
+                except (TypeError, ValueError):
+                    pass
+                else:
+                    supports_identity = any(
+                        parameter.name == "identity"
+                        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+                        for parameter in parameters
+                    )
+                if supports_identity:
+                    kwargs["identity"] = identity
+                return kwargs
 
             async def _do_recall() -> list[MemoryEntry]:
                 if asyncio.iscoroutinefunction(store.recall):
-                    recalled = await cast(Any, store.recall)(
-                        agent_id=self._context.agent_id,
-                        session_id=self._context.session_id,
-                        query=text,
-                        limit=limit,
-                    )
+                    recalled = await cast(Any, store.recall)(**_recall_kwargs())
                     return list(recalled)
-                return await asyncio.to_thread(
-                    store.recall,
-                    agent_id=self._context.agent_id,
-                    session_id=self._context.session_id,
-                    query=text,
-                    limit=limit,
-                )
+                return await asyncio.to_thread(cast(Any, store.recall), **_recall_kwargs())
 
             entries: list[MemoryEntry] = await asyncio.wait_for(_do_recall(), timeout=timeout)
         except TimeoutError:

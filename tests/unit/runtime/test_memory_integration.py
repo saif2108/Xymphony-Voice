@@ -23,6 +23,7 @@ from xymphony_runtime import (
     AgentRuntime,
     LLMRuntimeConfig,
     MemoryEntry,
+    MemoryIdentityContext,
     MemoryRuntimeConfig,
     MemoryStore,
     RuntimeContext,
@@ -88,11 +89,36 @@ class _SyncMemoryStore:
         session_id: UUID,
         query: str,
         limit: int = 10,
+        identity: MemoryIdentityContext | None = None,
     ) -> list[MemoryEntry]:
         self.recalled.append(
-            {"agent_id": agent_id, "session_id": session_id, "query": query, "limit": limit}
+            {
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "query": query,
+                "limit": limit,
+                "identity": identity,
+            }
         )
         return self._entries[:limit]
+
+
+class _LegacyMemoryStore:
+    """Adapter using the original recall signature without scope context."""
+
+    def __init__(self) -> None:
+        self.recalled = False
+
+    def recall(
+        self,
+        *,
+        agent_id: UUID,
+        session_id: UUID,
+        query: str,
+        limit: int = 10,
+    ) -> list[MemoryEntry]:
+        self.recalled = True
+        return [MemoryEntry(content=query, memory_id=str(session_id))][:limit]
 
 
 class _FailingMemoryStore:
@@ -203,7 +229,30 @@ async def test_recall_returns_formatted_text() -> None:
         "session_id": runtime.context.session_id,
         "query": "tell me about myself",
         "limit": runtime._memory_config.recall_limit,
+        "identity": MemoryIdentityContext(
+            agent_id=runtime.context.agent_id,
+            session_id=runtime.context.session_id,
+            organization_id=runtime.context.organization_id,
+            project_id=runtime.context.project_id,
+        ),
     }
+
+
+@pytest.mark.asyncio
+async def test_recall_preserves_legacy_adapter_signature() -> None:
+    store = _LegacyMemoryStore()
+    runtime = _make_runtime(memory_store=store)
+    await runtime.start()
+
+    result = await runtime._recall_memory(
+        text="legacy adapter query",
+        cancel=EventCancellationToken(),
+        turn_id=uuid4(),
+    )
+    await runtime.stop()
+
+    assert store.recalled is True
+    assert result == "[1] legacy adapter query"
 
 
 @pytest.mark.asyncio
