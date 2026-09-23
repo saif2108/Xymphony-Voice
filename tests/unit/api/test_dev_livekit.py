@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from xymphony_api.config import Settings, get_settings
 from xymphony_api.main import create_app
-from xymphony_realtime import LiveKitParticipantToken
+from xymphony_realtime.livekit_token import LiveKitParticipantToken
 
 
 @pytest.fixture

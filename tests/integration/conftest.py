@@ -102,7 +102,6 @@ def _run_migrations(url: str) -> None:
     cfg.set_main_option("sqlalchemy.url", url)
     command.upgrade(cfg, "head")
 
-
 @pytest.fixture(scope="session")
 def test_engine() -> Generator[Engine, None, None]:
     _ensure_test_database()

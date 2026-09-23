@@ -106,3 +106,11 @@ class SessionEndReason(StrEnum):
     PROVIDER_FAILED = "provider_failed"
     WORKER_DRAINING = "worker_draining"
     ERROR = "error"
+
+
+class ToolType(StrEnum):
+    """Control-plane tool kind. Runtime tool execution is provider-neutral."""
+
+    FUNCTION = "function"
+    API = "api"
+    WEBHOOK = "webhook"

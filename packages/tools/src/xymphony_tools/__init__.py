@@ -24,6 +24,15 @@ from xymphony_tools.errors import (
     ToolNotFoundError,
 )
 from xymphony_tools.executor import ToolExecutor
+from xymphony_tools.handlers import (
+    calculate,
+    create_customer_lookup_tool,
+    create_weather_lookup_tool,
+    get_builtin_tools,
+    lookup_customer,
+    lookup_weather,
+    register_builtin_tools,
+)
 from xymphony_tools.registry import (
     ToolRegistry,
     build_agent_tool_registry,
@@ -47,7 +56,9 @@ __all__ = [
     "ToolNotFoundError",
     "ToolRegistry",
     "ToolResult",
+    # Registry helpers
     "build_agent_tool_registry",
+    # Builtins (legacy calculate tool — tool name "calculate")
     "calculate_handler",
     "create_builtin_tools",
     "create_calculator_tool",
@@ -56,5 +67,14 @@ __all__ = [
     "create_text_stats_tool",
     "current_time_handler",
     "text_stats_handler",
+    # New handlers (tool name "calculator" + lookup tools)
+    "calculate",
+    "create_customer_lookup_tool",
+    "create_weather_lookup_tool",
+    "get_builtin_tools",
+    "lookup_customer",
+    "lookup_weather",
+    "register_builtin_tools",
+    # Validation
     "validate_tool_arguments",
 ]

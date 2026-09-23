@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from xymphony_api.config import Settings, get_settings
 from xymphony_api.errors import AppError
 from xymphony_api.schemas import LiveKitTokenResponse
-from xymphony_realtime import LiveKitCredentials, mint_participant_token
+from xymphony_realtime.livekit_token import LiveKitCredentials, mint_participant_token
 
 router = APIRouter(prefix="/v1/dev", tags=["dev"])
 
