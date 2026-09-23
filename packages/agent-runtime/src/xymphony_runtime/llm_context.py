@@ -36,12 +36,14 @@ class LLMContextAssembler:
         config: LLMRuntimeConfig,
         summary_text: str | None = None,
         knowledge_text: str | None = None,
+        memory_text: str | None = None,
         tools: Sequence[LLMToolDefinition] = (),
         extra_messages: Sequence[LLMMessage] = (),
     ) -> LLMRequest:
         llm_history = committed_messages_to_llm(tuple(history))
         effective_summary = summary_text
         effective_knowledge = knowledge_text
+        effective_memory = memory_text
         if config.max_input_tokens is not None:
             try:
                 llm_history = self._budget_policy.select_history(
@@ -51,10 +53,63 @@ class LLMContextAssembler:
                     max_input_tokens=config.max_input_tokens,
                     summary_text=effective_summary,
                     knowledge_text=effective_knowledge,
+                    memory_text=effective_memory,
                 )
             except ContextBudgetExceededError:
-                # Soft-fail: try dropping knowledge first, then summary
-                if effective_knowledge is not None:
+                # Soft-fail: drop memory first, then knowledge, then summary
+                if effective_memory is not None:
+                    effective_memory = None
+                    try:
+                        llm_history = self._budget_policy.select_history(
+                            committed_messages_to_llm(tuple(history)),
+                            current_user_text=current_user_text,
+                            system_instructions=config.system_instructions,
+                            max_input_tokens=config.max_input_tokens,
+                            summary_text=effective_summary,
+                            knowledge_text=effective_knowledge,
+                            memory_text=None,
+                        )
+                    except ContextBudgetExceededError:
+                        if effective_knowledge is not None:
+                            effective_knowledge = None
+                            try:
+                                llm_history = self._budget_policy.select_history(
+                                    committed_messages_to_llm(tuple(history)),
+                                    current_user_text=current_user_text,
+                                    system_instructions=config.system_instructions,
+                                    max_input_tokens=config.max_input_tokens,
+                                    summary_text=effective_summary,
+                                    knowledge_text=None,
+                                    memory_text=None,
+                                )
+                            except ContextBudgetExceededError:
+                                if effective_summary is not None:
+                                    effective_summary = None
+                                    llm_history = self._budget_policy.select_history(
+                                        committed_messages_to_llm(tuple(history)),
+                                        current_user_text=current_user_text,
+                                        system_instructions=config.system_instructions,
+                                        max_input_tokens=config.max_input_tokens,
+                                        summary_text=None,
+                                        knowledge_text=None,
+                                        memory_text=None,
+                                    )
+                                else:
+                                    raise
+                        elif effective_summary is not None:
+                            effective_summary = None
+                            llm_history = self._budget_policy.select_history(
+                                committed_messages_to_llm(tuple(history)),
+                                current_user_text=current_user_text,
+                                system_instructions=config.system_instructions,
+                                max_input_tokens=config.max_input_tokens,
+                                summary_text=None,
+                                knowledge_text=None,
+                                memory_text=None,
+                            )
+                        else:
+                            raise
+                elif effective_knowledge is not None:
                     effective_knowledge = None
                     try:
                         llm_history = self._budget_policy.select_history(
@@ -64,6 +119,7 @@ class LLMContextAssembler:
                             max_input_tokens=config.max_input_tokens,
                             summary_text=effective_summary,
                             knowledge_text=None,
+                            memory_text=None,
                         )
                     except ContextBudgetExceededError:
                         if effective_summary is not None:
@@ -75,6 +131,7 @@ class LLMContextAssembler:
                                 max_input_tokens=config.max_input_tokens,
                                 summary_text=None,
                                 knowledge_text=None,
+                                memory_text=None,
                             )
                         else:
                             raise
@@ -87,6 +144,7 @@ class LLMContextAssembler:
                         max_input_tokens=config.max_input_tokens,
                         summary_text=None,
                         knowledge_text=None,
+                        memory_text=None,
                     )
                 else:
                     raise
@@ -104,6 +162,7 @@ class LLMContextAssembler:
                 config.system_instructions,
                 summary_text=effective_summary,
                 knowledge_text=effective_knowledge,
+                memory_text=effective_memory,
             ),
             params=config.params,
             temperature=config.temperature,

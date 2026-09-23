@@ -10,6 +10,7 @@ from xymphony_runtime.token_estimate import TokenEstimator, approximate_token_co
 
 SUMMARY_SECTION_HEADER = "[Conversation summary]"
 KNOWLEDGE_SECTION_HEADER = "[Retrieved context]"
+MEMORY_SECTION_HEADER = "[Agent memory]"
 
 
 def build_system_prompt(
@@ -17,11 +18,15 @@ def build_system_prompt(
     *,
     summary_text: str | None = None,
     knowledge_text: str | None = None,
+    memory_text: str | None = None,
 ) -> str:
-    """Combine agent instructions with optional summary and retrieved knowledge context sections."""
+    """Combine agent instructions with optional summary, retrieved knowledge, and memory sections.
+    """
     sections: list[str] = []
     if system_instructions.strip():
         sections.append(system_instructions.strip())
+    if memory_text and memory_text.strip():
+        sections.append(f"{MEMORY_SECTION_HEADER}\n{memory_text.strip()}")
     if summary_text and summary_text.strip():
         sections.append(f"{SUMMARY_SECTION_HEADER}\n{summary_text.strip()}")
     if knowledge_text and knowledge_text.strip():
@@ -57,6 +62,7 @@ class ContextBudgetPolicy:
         max_input_tokens: int,
         summary_text: str | None = None,
         knowledge_text: str | None = None,
+        memory_text: str | None = None,
     ) -> tuple[LLMMessage, ...]:
         if max_input_tokens < 1:
             raise ContextBudgetExceededError(
@@ -67,12 +73,13 @@ class ContextBudgetPolicy:
             system_instructions,
             summary_text=summary_text,
             knowledge_text=knowledge_text,
+            memory_text=memory_text,
         )
         system_tokens = self._estimate(system_prompt)
         if system_tokens > max_input_tokens:
             raise ContextBudgetExceededError(
                 "system instructions exceed the configured context budget"
-                if not summary_text and not knowledge_text
+                if not summary_text and not knowledge_text and not memory_text
                 else "system instructions and context exceed the context budget"
             )
 

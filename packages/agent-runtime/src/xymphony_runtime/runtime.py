@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from xymphony_contracts import Event
@@ -47,6 +48,12 @@ from xymphony_runtime.errors import (
 from xymphony_runtime.input import RuntimeInput, RuntimeInputKind
 from xymphony_runtime.llm_config import LLMRuntimeConfig
 from xymphony_runtime.llm_context import LLMContextAssembler
+from xymphony_runtime.memory_config import (
+    MemoryEntry,
+    MemoryRuntimeConfig,
+    MemoryStore,
+    format_memory_context,
+)
 from xymphony_runtime.rag_config import (
     RAGRuntimeConfig,
     RetrievalResult,
@@ -86,6 +93,8 @@ class AgentRuntime:
         tool_registry: ToolRegistry | None = None,
         retriever: Retriever | None = None,
         rag_config: RAGRuntimeConfig | None = None,
+        memory_store: MemoryStore | None = None,
+        memory_config: MemoryRuntimeConfig | None = None,
     ) -> None:
         self._context = context
         self._output_sink = output_sink
@@ -96,6 +105,8 @@ class AgentRuntime:
         self._tool_executor = ToolExecutor(tool_registry) if tool_registry is not None else None
         self._retriever = retriever
         self._rag_config = rag_config or RAGRuntimeConfig()
+        self._memory_store = memory_store
+        self._memory_config = memory_config or MemoryRuntimeConfig()
         self._llm_provider = llm_provider
         self._llm_config = llm_config
         self._stt_provider = stt_provider
@@ -161,6 +172,10 @@ class AgentRuntime:
     @property
     def rag_enabled(self) -> bool:
         return self._retriever is not None and self._rag_config.enabled
+
+    @property
+    def memory_enabled(self) -> bool:
+        return self._memory_store is not None and self._memory_config.enabled
 
     def on_event(self, listener: EventListener) -> None:
         self._listeners.append(listener)
@@ -497,7 +512,8 @@ class AgentRuntime:
                 retriever = self._retriever
                 assert retriever is not None
                 if asyncio.iscoroutinefunction(retriever.retrieve):
-                    return await retriever.retrieve(query=text, limit=limit)  # type: ignore[misc]
+                    retrieved = await cast(Any, retriever.retrieve)(query=text, limit=limit)
+                    return list(retrieved)
                 return await asyncio.to_thread(retriever.retrieve, query=text, limit=limit)
 
             results: list[RetrievalResult] = await asyncio.wait_for(_do_retrieve(), timeout=timeout)
@@ -526,6 +542,81 @@ class AgentRuntime:
             return None
 
         return format_retrieval_context(results)
+
+    async def _recall_memory(
+        self,
+        *,
+        text: str,
+        cancel: EventCancellationToken,
+        turn_id: UUID,
+    ) -> str | None:
+        """Retrieve relevant long-term memories for *text*.
+
+        Returns a formatted string for the system prompt, or ``None`` when memory
+        is disabled, empty, timed-out, or an error occurs (graceful degradation).
+        """
+        if not self.memory_enabled or not text.strip():
+            return None
+        if cancel.cancelled or self._context.is_turn_cancelled(turn_id):
+            return None
+
+        try:
+            store = self._memory_store
+            assert store is not None
+            limit = self._memory_config.recall_limit
+            timeout = self._memory_config.recall_timeout_seconds
+
+            async def _do_recall() -> list[MemoryEntry]:
+                if asyncio.iscoroutinefunction(store.recall):
+                    recalled = await cast(Any, store.recall)(
+                        agent_id=self._context.agent_id,
+                        session_id=self._context.session_id,
+                        query=text,
+                        limit=limit,
+                    )
+                    return list(recalled)
+                return await asyncio.to_thread(
+                    store.recall,
+                    agent_id=self._context.agent_id,
+                    session_id=self._context.session_id,
+                    query=text,
+                    limit=limit,
+                )
+
+            entries: list[MemoryEntry] = await asyncio.wait_for(_do_recall(), timeout=timeout)
+        except TimeoutError:
+            logger.warning(
+                "memory_recall_timeout",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn_id),
+                    "timeout_seconds": self._memory_config.recall_timeout_seconds,
+                },
+            )
+            return None
+        except Exception as exc:
+            logger.warning(
+                "memory_recall_failed",
+                extra={
+                    "session_id": str(self._context.session_id),
+                    "turn_id": str(turn_id),
+                    "error": str(exc),
+                },
+            )
+            return None
+
+        if not entries:
+            return None
+
+        logger.debug(
+            "memory_recalled",
+            extra={
+                "session_id": str(self._context.session_id),
+                "turn_id": str(turn_id),
+                "entry_count": len(entries),
+            },
+        )
+        return format_memory_context(entries)
 
     async def _run_llm_stream(
         self,
@@ -564,6 +655,16 @@ class AgentRuntime:
             if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
                 return None
 
+        memory_text: str | None = None
+        if self.memory_enabled and text.strip():
+            memory_text = await self._recall_memory(
+                text=text,
+                cancel=cancel,
+                turn_id=turn.id,
+            )
+            if cancel.cancelled or self._context.is_turn_cancelled(turn.id):
+                return None
+
         extra_messages: list[LLMMessage] = []
         tool_definitions = (
             self._tool_registry.get_definitions()
@@ -582,6 +683,7 @@ class AgentRuntime:
                     config=self._llm_config,
                     summary_text=summary_text,
                     knowledge_text=knowledge_text,
+                    memory_text=memory_text,
                     tools=tool_definitions,
                     extra_messages=extra_messages,
                 )
