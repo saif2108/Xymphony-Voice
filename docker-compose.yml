@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: xymphony
       POSTGRES_DB: xymphony
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - xymphony_postgres_data:/var/lib/postgresql/data
     healthcheck:
