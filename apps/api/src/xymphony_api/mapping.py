@@ -6,6 +6,7 @@ from xymphony_api.models import (
     ConversationMessageRow,
     ConversationSummaryRow,
     SessionRow,
+    ToolDefinitionRow,
 )
 from xymphony_contracts import (
     Agent,
@@ -23,6 +24,8 @@ from xymphony_contracts import (
     SessionEndReason,
     SessionStatus,
     STTBinding,
+    ToolDefinition,
+    ToolType,
     TTSBinding,
 )
 
@@ -114,4 +117,21 @@ def summary_to_contract(row: ConversationSummaryRow) -> ConversationSummary:
         summary_text=row.summary_text,
         source_message_count=row.source_message_count,
         created_at=row.created_at,
+    )
+
+
+def tool_definition_to_contract(row: ToolDefinitionRow) -> ToolDefinition:
+    return ToolDefinition(
+        id=row.id,
+        organization_id=row.organization_id,
+        project_id=row.project_id,
+        name=row.name,
+        description=row.description,
+        tool_type=ToolType(row.tool_type),
+        parameters=row.parameters,
+        config=row.config,
+        enabled=row.enabled,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )

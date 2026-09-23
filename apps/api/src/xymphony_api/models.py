@@ -250,9 +250,7 @@ class ToolDefinitionRow(Base):
     """A tool definition managed via the control plane, scoped to a project."""
 
     __tablename__ = "tool_definitions"
-    __table_args__ = (
-        UniqueConstraint("project_id", "name", name="uq_tool_defs_project_name"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uq_tool_defs_project_name"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(
@@ -271,7 +269,9 @@ class ToolDefinitionRow(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     tool_type: Mapped[str] = mapped_column(String(32), nullable=False, default="function")
     parameters: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{\"type\": \"object\", \"properties\": {}}'::jsonb")
+        JSONB,
+        nullable=False,
+        server_default=text('\'{"type": "object", "properties": {}}\'::jsonb'),
     )
     config: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")

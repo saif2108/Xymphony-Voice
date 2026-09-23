@@ -57,9 +57,9 @@ def _run_migrations(url: str) -> None:
     os.environ["DATABASE_URL"] = url
     get_settings.cache_clear()
     cfg = Config(str(ALEMBIC_INI))
+    cfg.set_main_option("script_location", str(ROOT / "apps" / "api" / "alembic"))
     cfg.set_main_option("sqlalchemy.url", url)
     command.upgrade(cfg, "head")
-
 
 @pytest.fixture(scope="session")
 def test_engine() -> Generator[Engine, None, None]:

@@ -6,7 +6,7 @@ import { Plus, Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import DashboardShell from "../components/dashboard-shell";
 
-const API_URL = "http://localhost:8000";
+const API_URL = "http://127.0.0.1:8000";
 const PROJECT_ID = "00000000-0000-4000-8000-000000000002";
 
 type Agent = {
